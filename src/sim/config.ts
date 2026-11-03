@@ -120,8 +120,14 @@ export const Jet = {
 export const Bomb = {
   w: 6,
   h: 8,
-  gravity: 420,
-  maxFall: 300,
+  /**
+   * HW-002: bombs fall slowly enough for a human to get clear. The shortest drop in the game (about
+   * 55 px, from a jet at row 1 or 2 to a tank on high ground) takes about 0.85 s: 350 ms to react,
+   * 0.2 s to drive out of reach, and a quarter of a second to spare (tests/fairness.test.ts).
+   * Was gravity 420 and maxFall 300, which landed in 0.52-0.65 s.
+   */
+  gravity: 160,
+  maxFall: 110,
   /** Cracked floor within this distance of the burst breaks (px): a bomb anywhere on a 2-tile crack opens it. */
   blastRadius: 20,
   /** The burst kills you within this distance of your centre (px). */
