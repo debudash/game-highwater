@@ -1,3 +1,11 @@
 node_modules/
 dist/
 e2e-shots/
+coverage/
+test-results/
+*.log
+.vite/
+.env
+.env.*
+.DS_Store
+Thumbs.db
