@@ -19,6 +19,8 @@ export class Hud {
   readonly ctx: CanvasRenderingContext2D;
   scale = 2;
   private popups: { text: string; px: number; py: number; t: number }[] = [];
+  /** The room prompts' opacity: they fade while something passes behind them. */
+  private promptAlpha = 1;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -117,11 +119,27 @@ export class Hud {
       c.fillRect(x + 29, y + 2, Math.round((w - 2) * f), 5);
     }
 
-    // Prompts anchored in the room (hidden while a menu is open over play)
-    for (const pr of prompts ? g.room.def.prompts : []) {
-      const t = fillPrompt(pr.text, bindings);
-      const at = toHud(pr.col * 16, pr.row * 16 + 4);
-      this.label(t, at.x, at.y);
+    // Room prompts, stacked down the left edge under the room name and fuel bar (Debu: "move the
+    // messages to one side"), so they never sit over the play. In the room's order; hidden while a
+    // menu is open over play.
+    // The stack fades to nearly clear whenever a jet, a bomb or the player passes behind it, so a
+    // message never hides a danger (jets come in from the left edge at the stack's height).
+    const lines = prompts ? g.room.def.prompts.map((pr) => fillPrompt(pr.text, bindings)) : [];
+    if (lines.length) {
+      const top = 32;
+      const right = 4 + Math.max(...lines.map(textWidth)) + 5;
+      const bottom = top + lines.length * 14;
+      const behind = (b: { x: number; y: number; w: number; h: number }) => {
+        const a = toHud(b.x, b.y);
+        const z = toHud(b.x + b.w, b.y + b.h);
+        return a.x < right + 6 && z.x > 0 && a.y < bottom + 6 && z.y > top - 6;
+      };
+      const room = g.room as { jets?: { alive: boolean; x: number; y: number; w: number; h: number }[]; bombs?: { x: number; y: number; w: number; h: number }[] };
+      const hidden = (room.jets ?? []).some((j) => j.alive && behind(j)) || (room.bombs ?? []).some(behind) || behind(g.player);
+      this.promptAlpha += ((hidden ? 0.2 : 1) - this.promptAlpha) * Math.min(1, dt * 12);
+      c.globalAlpha = this.promptAlpha;
+      lines.forEach((t, i) => this.label(t, 4, top + i * 14));
+      c.globalAlpha = 1;
     }
 
     // Popups float up and fade
