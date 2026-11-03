@@ -1,0 +1,7 @@
+services:
+  riverguard:
+    build: .
+    image: riverguard:local
+    ports:
+      - "8137:80"
+    restart: unless-stopped
