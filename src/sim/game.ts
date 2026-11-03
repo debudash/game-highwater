@@ -847,6 +847,11 @@ function updateJets(g: Game): void {
       if (j.y + j.h >= j.pullY) {
         j.y = j.pullY - j.h;
         j.phase = 'climb';
+        // HW-003 — found while checking HW-002: the jet pulled out towards the far side of the
+        // room, chosen when it locked on, so a player who dodged that way was hit at ground level
+        // with no warning. Root cause: the climb ignored where the player went. Fix: it pulls out
+        // away from the player, so any dodge out of the warned column is safe.
+        j.dir = cx(p) < j.aimX ? 1 : -1;
       }
     } else {
       j.x += j.dir * Jet.climbSpeed * DT;

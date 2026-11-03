@@ -4,10 +4,12 @@
 // player who does that, with MARGIN ticks to spare.
 //
 // HW-002 — found by Debu playing Jet Alley: bombs were too fast for the tank to escape (they
-// reached the tank 0.52–0.65 s after the drop).
+// reached the tank 0.52–0.65 s after the drop). HW-003 — found while checking HW-002: a dive jet
+// pulled out towards the far side of the room at ground level, so dodging that way was fatal with
+// no warning.
 import { describe, expect, it } from 'vitest';
 import { Bomb, DT, Jet, PLAYER_H, PLAYER_W, Tank, TILE, ms } from '../src/sim/config';
-import { tick } from '../src/sim/game';
+import { Game, tick } from '../src/sim/game';
 import { GAME_ROOMS } from '../src/sim/stages';
 import { game, input, room } from './helpers';
 
@@ -69,6 +71,31 @@ describe('HW-002: bombs give a human time to get clear', () => {
           if (dropped >= 0 && i - dropped > 240) break;
         }
         expect(dropped).toBeGreaterThanOrEqual(0);
+        expect(g.deaths).toBe(0);
+      });
+    }
+  }
+});
+
+describe('HW-003: a dive jet never pulls out through a player who dodged', () => {
+  for (const away of ['left', 'right'] as const) {
+    for (const startCol of [4, 9, 15]) {
+      it(`HW-003: dodging ${away} from column ${startCol} after the warning survives the dive and the climb`, () => {
+        const rows = Array.from({ length: 10 }, () => '....................');
+        rows[0] = 'D...................';
+        rows[8] = '.'.repeat(startCol) + 'P' + '.'.repeat(19 - startCol);
+        rows[9] = '####################';
+        const g: Game = game(room(rows));
+        let warned = -1;
+        for (let i = 0; i < 1500 && g.deaths === 0; i++) {
+          const j = g.room.jets[0];
+          if (warned < 0 && j.phase === 'warn') warned = i;
+          // React, drive clear of the column, then stop: a player who dodged and waits.
+          const moving = warned >= 0 && i - warned >= REACT && i - warned < REACT + escapeTicks((PLAYER_W + Jet.w) / 2 + 2);
+          tick(g, input(moving ? [away] : []));
+          if (warned >= 0 && j.phase === 'wait') break; // the attack is over
+        }
+        expect(warned).toBeGreaterThanOrEqual(0);
         expect(g.deaths).toBe(0);
       });
     }
