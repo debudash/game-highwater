@@ -1,0 +1,278 @@
+// A bot solution for every stage room, written as a short script of steps (drive here, fire, fold
+// into the chopper, fly there, hook, set down...). Each step reads the sim the way a player reads
+// the screen. tests/solutions.test.ts runs them all, and tests/ghosts.test.ts records their inputs
+// into src/sim/ghosts.json for the ghost hint.
+import { Chopper, TILE } from '../src/sim/config';
+import { Game, isSolidTile, Item } from '../src/sim/game';
+import { Button } from '../src/sim/input';
+import type { Policy } from './bots';
+
+interface Keys { held: Button[]; press: Button[] }
+/** One step of a script: push keys for this tick and return false, or return true when done. */
+type Step = (g: Game, k: Keys) => boolean;
+
+/** Run steps in order; a finished step hands over to the next one in the same tick. */
+export function script(...steps: Step[]): Policy {
+  let i = 0;
+  return (g) => {
+    for (let guard = 0; guard < 8 && i < steps.length; guard++) {
+      const k: Keys = { held: [], press: [] };
+      if (!steps[i](g, k)) return k;
+      i++;
+      if (k.press.length || k.held.length) return k; // a step that acts as it finishes (fire, charge)
+    }
+    return { held: [] };
+  };
+}
+
+const cx = (g: Game) => g.player.x + g.player.w / 2;
+const col = (c: number) => c * TILE + TILE / 2;
+
+/** A gap, a wall or a cactus just ahead along the ground, in direction dir. */
+function obstacleAhead(g: Game, dir: 1 | -1, reach = 10): boolean {
+  const p = g.player;
+  const ahead = dir === 1 ? p.x + p.w + reach : p.x - reach;
+  const c = Math.floor(ahead / TILE);
+  const feet = Math.floor((p.y + p.h - 1) / TILE);
+  const floor = isSolidTile(g.room, c, feet + 1);
+  const wall = isSolidTile(g.room, c, feet);
+  const cactus = g.room.cacti.some((k) => k.grown && k.col === c && (k.row === feet || k.row === feet + 1));
+  return !floor || wall || cactus;
+}
+
+/** Tank: drive one way, jumping whatever is ahead, holding the jump to the top of the arc. */
+function driveKeys(g: Game, k: Keys, dir: 1 | -1): void {
+  const p = g.player;
+  k.held.push(dir === 1 ? 'right' : 'left');
+  if ((p.onGround && obstacleAhead(g, dir)) || (!p.onGround && p.vy < 0 && p.jumping)) k.held.push('jump');
+}
+
+// ---------------------------------------------------------------- steps
+
+/** Drive (tank) to x, jumping obstacles; done when stopped there on the ground. */
+export const driveTo = (x: number, tol = 3): Step => (g, k) => {
+  const p = g.player;
+  const d = x - cx(g);
+  if (Math.abs(d) <= tol && p.onGround && Math.abs(p.vx) < 20) return true;
+  if (Math.abs(d) > tol) {
+    // Ease off near the mark so the tank stops on it.
+    const brake = (p.vx * p.vx) / (2 * 1300);
+    if (Math.abs(d) > brake + tol || Math.sign(p.vx) !== Math.sign(d)) driveKeys(g, k, d > 0 ? 1 : -1);
+  }
+  return false;
+};
+
+/** Drive right (tank) until something is true, jumping obstacles. */
+export const driveRightUntil = (done: (g: Game) => boolean): Step => (g, k) => {
+  if (done(g)) return true;
+  driveKeys(g, k, 1);
+  return false;
+};
+
+/** Drive left a little (tank). */
+export const backOff = (px: number): Step => {
+  let from: number | null = null;
+  return (g, k) => {
+    from ??= cx(g);
+    if (cx(g) <= from - px) return true;
+    driveKeys(g, k, -1);
+    return false;
+  };
+};
+
+/** Hold one direction with no jumping (to drop into a hole) until something is true. */
+export const rollUntil = (dir: 1 | -1, done: (g: Game) => boolean): Step => (g, k) => {
+  if (done(g)) return true;
+  k.held.push(dir === 1 ? 'right' : 'left');
+  return false;
+};
+
+/** Fire one shell (tank), when none is in the air. */
+export const fire = (): Step => (g, k) => {
+  if (g.shell) return false;
+  k.press.push('action');
+  return true;
+};
+
+export const waitFor = (pred: (g: Game) => boolean): Step => (g) => pred(g);
+export const wait = (ticks: number): Step => {
+  let n = 0;
+  return () => ++n > ticks;
+};
+
+/** Fold into the other body (switch), and wait for the fold to finish. */
+export const become = (body: 'tank' | 'chopper'): Step => (g, k) => {
+  const p = g.player;
+  if (p.body === body) return p.foldTicks === 0;
+  if (p.foldTicks === 0) k.press.push('switch');
+  return false;
+};
+
+/** Chopper keys to head for (x, y): steer with braking, thrust to hold the height. */
+function flyKeys(g: Game, k: Keys, x: number, y: number, tol: number): void {
+  const p = g.player;
+  const d = x - cx(g);
+  const brake = (p.vx * p.vx) / (2 * Chopper.decel) + 1;
+  if (d > tol && (d > brake || p.vx < 0)) k.held.push('right');
+  else if (d < -tol && (-d > brake || p.vx > 0)) k.held.push('left');
+  // Thrust when below the line or falling fast; ease off near it.
+  if (p.y > y + 1 || (p.y > y - 8 && p.vy > 40)) k.held.push('jump');
+}
+
+/** Fly (chopper) to (x, y): done when close and nearly still. */
+export const flyTo = (x: number, y: number, tol = 3): Step => (g, k) => {
+  const p = g.player;
+  if (Math.abs(x - cx(g)) <= tol && Math.abs(p.y - y) <= 6 && Math.abs(p.vx) < 25) return true;
+  flyKeys(g, k, x, y, tol);
+  return false;
+};
+
+/** Fly right at height y until something is true (or forever: out of the room). */
+export const flyRightUntil = (y: number, done: (g: Game) => boolean = () => false): Step => (g, k) => {
+  if (done(g)) return true;
+  flyKeys(g, k, 99999, y, 3);
+  return false;
+};
+
+/** Sink straight down (chopper, no thrust), holding x, until done. */
+export const sinkUntil = (x: number, done: (g: Game) => boolean): Step => (g, k) => {
+  if (done(g)) return true;
+  const d = x - cx(g);
+  if (d > 2) k.held.push('right');
+  else if (d < -2) k.held.push('left');
+  return false;
+};
+
+/** Drop a charge (chopper, not carrying). */
+export const charge = (): Step => (g, k) => {
+  if (g.charge) return false;
+  k.press.push('action');
+  return true;
+};
+
+const boatOf = (g: Game, which = 0): Item | undefined => g.room.items.filter((i) => i.kind === 'boat' && !i.hidden && !i.rescued)[which];
+
+/** Fly low over the room's first boat still out there until the hook takes it. */
+export const hookBoat = (): Step => (g, k) => {
+  if (g.player.carrying) return true;
+  const b = boatOf(g);
+  if (!b) return true;
+  flyKeys(g, k, b.x + b.w / 2, b.y - g.player.h - 18, 2);
+  return false;
+};
+
+/**
+ * Carry the load over to x, lower it until it is just above the surface at surfaceY, and set it
+ * down. Done once it's released.
+ */
+export const deliver = (x: number, surfaceY: number, cruise: number): Step => {
+  let stage = 0;
+  return (g, k) => {
+    const p = g.player;
+    const it = p.carrying;
+    if (!it) return true;
+    if (stage === 0) {
+      flyKeys(g, k, x, cruise, 3);
+      if (Math.abs(x - cx(g)) < 4 && Math.abs(p.vx) < 15) stage = 1;
+      return false;
+    }
+    // Lower it: hold x, sink until its bottom is a few px above the dock, then let go.
+    const bottom = it.y + it.h;
+    flyKeys(g, k, x, surfaceY - it.h - Chopper.hangGap - p.h - 3, 2);
+    if (bottom >= surfaceY - 5 && Math.abs(p.vx) < 10) k.press.push('action');
+    return false;
+  };
+};
+
+// ---------------------------------------------------------------- the rooms
+
+const never = () => false;
+
+/** Tank under a target: line up under its column and fire until it's hit. */
+const shootTarget = (c: number): Step[] => [
+  driveTo(col(c), 2),
+  (g, k) => {
+    const t = g.room.targets.find((t) => t.col === c);
+    if (!t || t.hit) return true;
+    if (!g.shell) k.press.push('action');
+    return false;
+  },
+];
+
+/** Tank: wait for a cross jet to come within `lead` px of you (towards you) and fire into it. */
+const shootCrossJet = (leadLo: number, leadHi: number): Step => (g, k) => {
+  const jets = g.room.jets.filter((j) => j.alive && j.kind === 'cross');
+  if (!jets.length) return true;
+  for (const j of jets) {
+    if (j.phase !== 'fly') continue;
+    const d = (j.x + j.w / 2 - cx(g)) * -j.dir; // > 0 while it is still coming
+    if (d > leadLo && d < leadHi && !g.shell) k.press.push('action');
+  }
+  return false;
+};
+
+export const STAGE_BOTS: Record<string, () => Policy> = {
+  '1-1': () => script(driveRightUntil(never)),
+  '1-2': () => script(driveRightUntil(never)),
+  '1-3': () => script(...shootTarget(6), driveRightUntil(never)),
+  '1-4': () => script((g, k) => {
+    // Jump the first gap and fire as you pass under the target.
+    const t = g.room.targets[0];
+    if (!t.hit && !g.player.onGround && Math.abs(cx(g) - col(t.col)) < 6 && !g.shell) k.press.push('action');
+    driveKeys(g, k, 1);
+    return false;
+  }),
+  '2-1': () => script(shootCrossJet(18, 26), driveRightUntil(never)),
+  '2-2': () => script(driveTo(col(4)), ...shootTarget(10), driveRightUntil(never)),
+  '2-3': () => script(driveRightUntil(never)),
+  '2-4': () => script(
+    driveTo(10 * TILE, 2),
+    waitFor((g) => g.room.bombs.length > 0),
+    backOff(56),
+    waitFor((g) => g.room.tiles[6][9] === '.' && g.room.bombs.length === 0),
+    rollUntil(1, (g) => g.player.y > 7 * TILE),
+    driveRightUntil(never),
+  ),
+  '3-1': () => script(become('chopper'), flyTo(col(8), 20), flyRightUntil(20)),
+  '3-2': () => script(become('chopper'), flyRightUntil(60)),
+  '3-3': () => script(become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
+  '3-4': () => script(become('chopper'), flyTo(col(5), 34), flyTo(col(9), 40), hookBoat(), deliver(col(17), 5 * TILE, 20), flyRightUntil(54)),
+  '4-1': () => script(
+    become('chopper'), flyTo(10 * TILE + 8, 20), charge(), waitFor((g) => !g.room.cacti[0].grown),
+    flyTo(10 * TILE, 20, 2), sinkUntil(10 * TILE, (g) => g.player.onGround), flyRightUntil(116),
+  ),
+  '4-2': () => script(
+    become('chopper'), flyTo(7 * TILE, 30, 2), charge(), waitFor((g) => g.room.tiles[4][6] === '.'),
+    sinkUntil(7 * TILE, (g) => g.player.onGround), flyTo(14 * TILE, 86, 2), charge(),
+    waitFor((g) => g.room.tiles[7][13] === '.'), sinkUntil(14 * TILE, (g) => g.player.onGround), flyRightUntil(132),
+  ),
+  '4-3': () => script(become('chopper'), hookBoat(), deliver(col(17), 7 * TILE, 50), flyRightUntil(86)),
+  '4-4': () => script(become('chopper'), hookBoat(), deliver(col(17) + 4, 7 * TILE, 50), flyRightUntil(82)),
+  '5-1': () => script(become('chopper'), flyRightUntil(50)),
+  '5-2': () => script(become('chopper'), flyRightUntil(50)),
+  '5-3': () => script(become('chopper'), hookBoat(), deliver(col(17), 7 * TILE, 50), flyRightUntil(86)),
+  '5-4': () => script(become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
+};
+
+/** Tank: jump one way from where you stand, holding the jump, until you land again. */
+const leap = (dir: 1 | -1): Step => {
+  let up = false;
+  return (g, k) => {
+    const p = g.player;
+    if (up && p.onGround) return true;
+    k.held.push(dir === 1 ? 'right' : 'left');
+    if (!up) { if (p.onGround) k.press.push('jump'); else up = true; }
+    if (p.vy < 0) k.held.push('jump');
+    return false;
+  };
+};
+
+/** The optional route to each hidden boat (proves it can be reached). */
+export const HIDDEN_BOTS: Record<string, () => Policy> = {
+  '1-3': () => script(...shootTarget(6), driveTo(col(14)), leap(-1), driveTo(col(10))),
+  // Wait on the block for a dive jet to lock on, then leap to the ledge as it dives.
+  '2-3': () => script(driveTo(col(6) + 8), waitFor((g) => g.room.jets.some((j) => j.phase === 'warn' && Math.abs(j.aimX - cx(g)) < 10)), leap(-1), driveTo(col(2))),
+  '3-4': () => script(become('chopper'), flyTo(col(4), 6), flyTo(col(1), 6), sinkUntil(col(1), (g) => g.room.hiddenHome > 0)),
+  '4-4': () => script(become('chopper'), flyTo(col(10), 4), sinkUntil(col(10), (g) => g.room.hiddenHome > 0)),
+  '5-4': () => script(become('chopper'), flyTo(col(11), 4), sinkUntil(col(11), (g) => g.room.hiddenHome > 0)),
+};

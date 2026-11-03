@@ -1,137 +1,144 @@
-// Every tunable from the rulebook lives here (§6 "DifficultyTable — no scattered magic numbers",
-// §9 Exact timer defaults, §9 Panel layout defaults). Section refs point at river-guard-rulebook.md.
+// Every feel number lives here, so tuning never touches logic (CLAUDE.md "Feel numbers").
+// Units: pixels and ticks. One tick = 1/60 s. The world is a 16 px tile grid; y grows downward.
 
-/** Seed tick: S = 60 ms. Every tick is exactly one S (§9 Tick length). */
-export const S = 60;
+export const TICK_HZ = 60;
+export const DT = 1 / TICK_HZ;
+export const ms = (n: number) => Math.round((n / 1000) * TICK_HZ); // ms → ticks
 
-// Grid (§3)
-export const COLS = 18; // W
-export const ROWS = 14; // H
-export const LANE_ROW = 9;
-export const JUMP_ROW = 8;
-export const GROUND_ROW = 10;
-export const CHOPPER_ROW = 11;
-export const HOOKED_BOAT_ROW = 12;
-export const LAST_ROW = 13;
-export const CENTRE_COL = 8; // F: left of the two middle columns
-export const LEFT_BANK = 0;
-export const RIGHT_BANK = COLS - 1;
+export const TILE = 16;
+export const ROOM_W = 20; // tiles
+export const ROOM_H = 10; // tiles
+export const ROOM_PX_W = ROOM_W * TILE;
+export const ROOM_PX_H = ROOM_H * TILE;
 
-export type Band = 'A' | 'B' | 'C' | 'D' | 'E';
-export const BANDS: readonly Band[] = ['A', 'B', 'C', 'D', 'E'];
+/** Player hitbox, the same for both bodies so a switch never pushes you into a wall. */
+export const PLAYER_W = 14;
+export const PLAYER_H = 12;
 
-export interface BandRow {
-  minScore: number;
-  jetSpawnMs: number;
-  jetStepMs: number;
-  crossStepMs: number;
-  bombStepMs: number;
-  bombDropChance: number;
-  bombsPerJetMax: number;
-  rescueJetStepMs: number;
-  rescueCrossStepMs: number;
-  rescueBombStepMs: number;
-  respawnFloorMs: number;
-  crisisIntervalMs: number;
-  drownTimerMs: number;
-}
-
-/** §6 numeric difficulty table, rescue table and the band-indexed §9 tunables. */
-export const DifficultyTable: Record<Band, BandRow> = {
-  A: {
-    minScore: 0, jetSpawnMs: 1333, jetStepMs: 720, crossStepMs: 400, bombStepMs: 660,
-    bombDropChance: 0.1, bombsPerJetMax: Infinity,
-    rescueJetStepMs: 1920, rescueCrossStepMs: 1067, rescueBombStepMs: 1760,
-    respawnFloorMs: 900, crisisIntervalMs: 12000, drownTimerMs: 9360,
-  },
-  B: {
-    minScore: 2000, jetSpawnMs: 1333, jetStepMs: 720, crossStepMs: 400, bombStepMs: 660,
-    bombDropChance: 0.15, bombsPerJetMax: 2,
-    rescueJetStepMs: 1920, rescueCrossStepMs: 1067, rescueBombStepMs: 1760,
-    respawnFloorMs: 840, crisisIntervalMs: 12000, drownTimerMs: 9360,
-  },
-  C: {
-    minScore: 5000, jetSpawnMs: 943, jetStepMs: 509, crossStepMs: 283, bombStepMs: 467,
-    bombDropChance: 0.3, bombsPerJetMax: 3,
-    rescueJetStepMs: 1142, rescueCrossStepMs: 634, rescueBombStepMs: 1047,
-    respawnFloorMs: 780, crisisIntervalMs: 8485, drownTimerMs: 8596,
-  },
-  D: {
-    minScore: 15000, jetSpawnMs: 667, jetStepMs: 360, crossStepMs: 200, bombStepMs: 330,
-    bombDropChance: 0.45, bombsPerJetMax: 4,
-    rescueJetStepMs: 679, rescueCrossStepMs: 377, rescueBombStepMs: 622,
-    respawnFloorMs: 720, crisisIntervalMs: 6000, drownTimerMs: 7954,
-  },
-  E: {
-    minScore: 30000, jetSpawnMs: 471, jetStepMs: 255, crossStepMs: 142, bombStepMs: 233,
-    bombDropChance: 0.5, bombsPerJetMax: 5,
-    rescueJetStepMs: 404, rescueCrossStepMs: 224, rescueBombStepMs: 370,
-    respawnFloorMs: 660, crisisIntervalMs: 4243, drownTimerMs: 7414,
-  },
+export const Tank = {
+  maxSpeed: 110, // px/s
+  accelGround: 900, // px/s²
+  decelGround: 1300,
+  accelAir: 620,
+  decelAir: 500,
+  /** Jump height ≈ 3 tiles: v0²/(2·gUp) = 267²/(2·741) ≈ 48 px. */
+  jumpSpeed: 267,
+  gravityUp: 741,
+  gravityDown: 1300,
+  /** Releasing Jump while rising multiplies the upward speed by this (variable height). */
+  jumpCut: 0.45,
+  maxFall: 420,
+  coyoteTicks: ms(100),
+  bufferTicks: ms(120),
 };
 
-export function bandForScore(score: number): Band {
-  if (score >= DifficultyTable.E.minScore) return 'E';
-  if (score >= DifficultyTable.D.minScore) return 'D';
-  if (score >= DifficultyTable.C.minScore) return 'C';
-  if (score >= DifficultyTable.B.minScore) return 'B';
-  return 'A';
-}
-
-// §9 Exact timer defaults
-export const Tunables = {
-  startLives: 3,
-  invulnMs: 960,
-  impactLockMs: 420,
-  mineLifetimeMs: 4200,
-  jumpAirtimeMs: 480,
-  tankMoveMs: 120,
-  jumpCooldownMs: 240,
-  boatUnlockScore: 2000,
-  mineUnlockScore: 10000,
-  mineMinGapCols: 5,
-  msgHoldMs: 960,
-  flightBudgetMs: 9920,
-  chopperFreeMoveMs: 240,
-  chopperHookedMoveMs: 480,
-  jetCrossChance: 0.5,
-  shellStepMs: S,
-  scoreMax: 999_999,
-  drownedLimit: 3,
-  // Level 1 (river-guard-level1.md)
-  tutorialBoatCol: 13,
-  tutorialBoatRow: 12,
-  tutorialBeatMs: 960,
+export const Chopper = {
+  maxSpeed: 100,
+  maxSpeedCarrying: 75,
+  accel: 520,
+  decel: 420,
+  thrust: 980, // upward accel while Jump is held
+  gravity: 520,
+  maxRise: 120,
+  maxDrift: 70, // fall speed while not thrusting
+  maxSinkEmpty: 55, // fall speed with an empty tank
+  fuelTicks: ms(3000), // seconds of thrust
+  refillTicksPerTick: 6, // a full tank refills in 0.5 s on the ground
+  hangGap: 2, // px between chopper and a carried item
 };
 
-export type TunablesT = typeof Tunables;
-
-/** Ticks for a duration (countdown timers expire at <= 0, so round up; §9 Tick length). */
-export const ticksFor = (ms: number) => Math.ceil(ms / S);
-
-// §3 Screen and panel layout (LCD px)
-export const Layout = {
-  tilePx: 16,
-  canvasW: 416,
-  canvasH: 248,
-  topPanelH: 24,
-  playX: 0,
-  playY: 24,
-  playW: COLS * 16,
-  playH: ROWS * 16,
-  sideX: 288,
-  sideW: 128,
-  panelMargin: 4,
-  sideLinePitch: 16,
-  glyphW: 5,
-  glyphH: 7,
-  cellW: 6,
-  cellH: 8,
+export const Switch = {
+  foldTicks: ms(150),
+  /** Chopper → tank in the air: start the drop at least this fast (px/s, downward). */
+  dropStartSpeed: 140,
 };
 
-// §3 Setting art inks
-export const Inks = {
-  background: '#a8b296', // (168,178,150)
-  full: '#222820', //       (34,40,32)
-  scenery: '#8a947a', //    (138,148,122)
+export const Shell = { speed: 360, w: 4, h: 6 };
+
+export const Charge = {
+  startSpeed: 40,
+  gravity: 900,
+  maxFall: 380,
+  w: 6,
+  h: 6,
+  blastRadius: 14,
 };
+
+export const Cactus = {
+  regrowTicks: ms(4000),
+  sproutTicks: ms(360),
+  /** The hitbox is inset from the 16 px tile so a near miss is a miss. */
+  inset: 3,
+};
+
+export const Mine = { speed: 18, w: 10, h: 10 };
+
+export const Boat = { w: 16, h: 10, drownTicks: ms(30000) };
+export const Crate = { w: 16, h: 16 };
+
+export const Pickup = {
+  /** The hook is automatic (HW-001): it takes a crate or boat this close below the chopper. */
+  reachX: 16, // px between centres, about a tile either side
+  reachDown: 32, // px from the chopper's skids to the item's top, about 2 tiles
+  /** The crate you just set down can be hooked again once you're this far from it. */
+  rearmDistance: 24,
+};
+
+/**
+ * Jets (stage 2 on). A cross jet flies level across the room again and again until shot, and
+ * drops a bomb whenever it passes over you. A dive jet shows a warning at the top of the screen
+ * over where you are, then dives straight down that column, skims the ground and climbs away.
+ * Both die to one shell. Each room has a fixed set: shot jets never come back.
+ */
+export const Jet = {
+  w: 20,
+  h: 10,
+  crossSpeed: 80, // px/s
+  /** Pause offscreen between passes. */
+  passGapTicks: ms(1600),
+  /** A cross jet drops when its centre is this close to yours (px)... */
+  dropWindow: 8,
+  /** ...and no more often than this. */
+  bombCooldownTicks: ms(1200),
+  /** Ticks per tile of the stagger in a jet's first entry (its column in the map). */
+  staggerTicks: ms(250),
+  /** Dive jets: the warning lasts this long before the dive, and the aim locks when it starts. */
+  warnTicks: ms(900),
+  diveSpeed: 190,
+  climbSpeed: 150,
+  /** It levels out this far above the ground or water under its column (px). */
+  skim: 4,
+  firstDiveTicks: ms(1000),
+  diveGapTicks: ms(2600),
+  /**
+   * The harmless jet ('h', decision 28): stage 1's first taste of jets. A slow cross jet that drops
+   * no bombs and can't hurt you; shooting it is optional and pays the usual points.
+   */
+  harmlessSpeed: 45,
+};
+
+export const Bomb = {
+  w: 6,
+  h: 8,
+  gravity: 420,
+  maxFall: 300,
+  /** Cracked floor within this distance of the burst breaks (px): a bomb anywhere on a 2-tile crack opens it. */
+  blastRadius: 20,
+  /** The burst kills you within this distance of your centre (px). */
+  killRadius: 15,
+};
+
+/** Stage 5 gusts: a room's wind blows in timed gusts that push the chopper and the charge. */
+export const Wind = {
+  /** Ticks to ramp a gust up and down. */
+  rampTicks: ms(500),
+  /** The charge drifts this much more than the chopper (it is light). */
+  chargeFactor: 1.3,
+};
+
+export const Death = { respawnTicks: ms(400) };
+
+export const Points = { jet: 100, mine: 200, boat: 500 };
+
+/** Ghost hint and skip offer (design Q2). */
+export const Help = { hintDeaths: 5, skipDeaths: 10 };

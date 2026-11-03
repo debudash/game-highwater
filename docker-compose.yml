@@ -1,7 +1,7 @@
 services:
-  riverguard:
+  highwater:
     build: .
-    image: riverguard:local
+    image: highwater:local
     ports:
-      - "8137:80"
+      - "8138:80"
     restart: unless-stopped

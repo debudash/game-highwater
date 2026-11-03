@@ -1,33 +1,46 @@
-import { Button, TickInput, idleInput, noButtons } from '../src/sim/input';
-import { Game, createGame, tick } from '../src/sim/game';
+import { createGame, Game, tick } from '../src/sim/game';
+import { Button, TickInput, noButtons } from '../src/sim/input';
+import { RoomDef } from '../src/sim/rooms';
 
-/** New press, still held at the tick. */
-export function press(...bs: Button[]): TickInput {
-  const i = idleInput();
-  for (const b of bs) {
-    i.press[b] = true;
-    i.held[b] = true;
-  }
-  return i;
+/** A 20×10 room from up to 10 rows; missing rows are air and short rows are padded with air. */
+export function room(rows: string[], extra: Partial<RoomDef> = {}): RoomDef {
+  const full = [...rows];
+  while (full.length < 10) full.unshift('');
+  return {
+    id: 'test', name: 'TEST', light: 'noon', canSwitch: true, prompts: [],
+    rows: full.map((r) => r.padEnd(20, '.')),
+    ...extra,
+  };
 }
 
-/** Pressed and released inside one frame. */
-export function tap(...bs: Button[]): TickInput {
-  const i = idleInput();
-  for (const b of bs) i.press[b] = true;
-  return i;
+export const FLAT = room([
+  '.P..................',
+  '####################',
+  '####################',
+]);
+
+export function game(def: RoomDef = FLAT, more: RoomDef[] = []): Game {
+  return createGame({ rooms: [def, ...more] });
 }
 
-/** Held, no new press. */
-export function hold(...bs: Button[]): TickInput {
-  return { press: noButtons(), held: Object.fromEntries(['left', 'right', 'up', 'down', 'fire'].map((b) => [b, bs.includes(b as Button)])) as TickInput['held'] };
+export function input(held: Button[] = [], press: Button[] = []): TickInput {
+  const h = noButtons();
+  const p = noButtons();
+  for (const b of held) h[b] = true;
+  for (const b of press) { p[b] = true; h[b] = true; }
+  return { held: h, press: p };
 }
 
-export function run(g: Game, n: number, input: TickInput | (() => TickInput) = idleInput): void {
-  for (let i = 0; i < n; i++) tick(g, typeof input === 'function' ? input() : input);
+/** Runs n ticks with the same held buttons (no new presses). */
+export function hold(g: Game, n: number, held: Button[] = []): void {
+  for (let i = 0; i < n; i++) tick(g, input(held));
 }
 
-/** Normal play, no jets unless a test adds them. */
-export function quietGame(score = 0, seed = 1): Game {
-  return createGame({ seed, level1: false, noSpawns: true, score });
+/** One tick with a fresh press of `b` (and anything else held). */
+export function press(g: Game, b: Button, held: Button[] = []): void {
+  tick(g, input([...held, b], [b]));
+}
+
+export function settle(g: Game, n = 30): void {
+  hold(g, n);
 }

@@ -1,1092 +1,1015 @@
-// River Guard simulation. One call to tick() = one 60 ms game tick, resolved in the fixed
-// rulebook §9 Tick order:
-//   1 input and player movement · 2 timers · 3 threat and shell steps · 4 respawn · 5 hits · 6 crisis spawns
-// Pure and deterministic (seeded RNG, no wall clock, no DOM). Section refs: river-guard-rulebook.md (§),
-// level-1 script: river-guard-level1.md (L1).
+// The pure, deterministic game sim: one tick() = 1/60 s. No DOM, no wall clock, no Math.random.
+// The view (src/view) only reads this state and the per-tick events; it never writes back.
 
 import {
-  Band, CENTRE_COL, CHOPPER_ROW, COLS, DifficultyTable, GROUND_ROW, HOOKED_BOAT_ROW, JUMP_ROW,
-  LANE_ROW, LAST_ROW, LEFT_BANK, RIGHT_BANK, S, Tunables, bandForScore,
+  Boat, Bomb, Cactus, Charge, Chopper, Crate, DT, Death, Jet, Mine, PLAYER_H, PLAYER_W, Pickup, Points,
+  ROOM_H, ROOM_PX_H, ROOM_PX_W, ROOM_W, Shell, Switch, TILE, Tank, Wind,
 } from './config';
-import { TickInput } from './input';
-import { RngHolder, randInt, rngNext } from './rng';
-import { respawnColumn } from './respawn';
-import { Messages, createMessages, raise, trimMessages } from './messages';
+import type { TickInput } from './input';
+import { RoomDef } from './rooms';
+import { GAME_ROOMS, STAGES } from './stages';
 
-export type PlayerMode = 'Tank' | 'TankJump' | 'ChopperFree' | 'ChopperHooked' | 'TankInvuln';
-export type Crisis = 'None' | 'Boat' | 'Mine';
-export type GameOverReason = 'Lives' | 'DrownedBoats';
-type Dir = -1 | 0 | 1;
+export type BodyKind = 'tank' | 'chopper';
 
-/** Anything that steps on a timer: shell, jets, bombs, the jet spawner (§9 step accumulators). */
-export interface Mover {
-  acc: number;
-  lastInterval: number;
-  bornTick: number;
-  /** Held at interval − 1 by a block (ceiling, stagger slot, SkyPolicy spawner). See RG-003. */
-  capped?: boolean;
+export type EventType =
+  | 'jump' | 'land' | 'fire' | 'shellPoof' | 'targetHit' | 'bridgeDown' | 'drop' | 'blast' | 'splash'
+  | 'switch' | 'hook' | 'setDown' | 'rescue' | 'gateOpen' | 'death' | 'respawn' | 'cactusGone'
+  | 'cactusSprout' | 'mineClear' | 'boatLost' | 'fuelEmpty' | 'roomEnter' | 'loop' | 'floorBreak'
+  | 'jetDown' | 'bombDrop' | 'bombBlast' | 'diveWarn' | 'dive' | 'gust' | 'skip' | 'complete';
+
+export interface GameEvent {
+  type: EventType;
+  x: number;
+  y: number;
+  /** Extra detail: the new body for 'switch', the room index for 'roomEnter', points for scoring events. */
+  n?: number;
+  cause?: 'cactus' | 'water' | 'mine' | 'fall' | 'boat' | 'bomb' | 'jet';
+  /** 'rescue' of a hidden boat (found by touch, not needed for the gate). */
+  hidden?: boolean;
 }
 
-export interface Jet extends Mover {
+export interface Box { x: number; y: number; w: number; h: number }
+
+export interface Item extends Box {
   id: number;
-  path: 'dive' | 'cross';
-  col: number;
-  row: number;
-  dir: Dir; // cross jets: +1 flies right, -1 flies left
-  opp: number; // drop opportunities used so far (index of the next cell entered)
-  bombsDropped: number;
-  guaranteedIndex: number | null;
-  script: 'l1cross' | 'l1dive' | null;
-  stagger: number | null; // return-stampede slot (§9), null when free
-  prevCol: number | null;
-  prevRow: number | null;
-}
-
-export interface Bomb extends Mover {
-  id: number;
-  col: number;
-  row: number;
-  dropTick: number;
-  river: boolean;
-  stagger: number | null;
-  prevCol: number | null;
-  prevRow: number | null;
-}
-
-export interface Shell extends Mover {
-  col: number;
-  row: number;
-  prevRow: number;
-}
-
-export interface Boat {
-  col: number;
-  row: number;
+  kind: 'crate' | 'boat';
+  vx: number;
+  vy: number;
+  carried: boolean;
+  floating: boolean;
+  onGround: boolean;
+  rescued: boolean;
   drownLeft: number;
-  drownTotal: number;
-  hooked: boolean;
-  tutorial: boolean;
-  spawnTick: number;
+  /** A hidden boat ('b'): stranded on land off the main path, rescued by touching it. */
+  hidden: boolean;
 }
 
-export interface Mine {
-  col: number;
-  lifeLeft: number;
-  spawnTick: number;
+export interface CactusState { col: number; row: number; grown: boolean; timer: number; age: number }
+export interface MineState extends Box { vx: number; alive: boolean; minX: number; maxX: number }
+export interface TargetState { col: number; row: number; hit: boolean }
+export interface Projectile extends Box { vy: number }
+
+/** A jet (see config Jet). Cross jets fly level; dive jets warn, dive down a column and climb away. */
+export interface JetState extends Box {
+  id: number;
+  kind: 'cross' | 'dive';
+  alive: boolean;
+  phase: 'wait' | 'fly' | 'warn' | 'dive' | 'climb';
+  /** Ticks left in the 'wait' or 'warn' phase. */
+  timer: number;
+  /** Direction of flight: cross jets fly this way; a dive jet climbs away this way. */
+  dir: 1 | -1;
+  /** Cross jets: ticks until it may drop again. */
+  bombCd: number;
+  /** Dive jets: the column centre (px) it dives down, locked when the warning starts. */
+  aimX: number;
+  /** Dive jets: the y (px) its bottom levels out at. */
+  pullY: number;
+  /** Ticks until a shot jet returns, in rooms with jetRespawnTicks. */
+  respawn: number;
+  /** It has already paid its points once (a returning jet pays nothing). */
+  scored: boolean;
+  /** Drops nothing and can't hurt you (the harmless jet, 'h'). */
+  harmless: boolean;
 }
 
-export interface Player {
-  mode: 'tank' | 'jump' | 'chopperFree' | 'chopperHooked';
-  col: number;
-  row: number;
-  invulnLeft: number;
-  lockLeft: number;
-  airLeft: number;
-  cooldownLeft: number;
-  respawnDue: boolean;
-  wreck: null | 'jet' | 'bomb' | 'mine';
-  lastHitTick: number | null;
-  chopperLastMove: number | null;
-  pendingMove: Dir;
+export interface BombState extends Box { vy: number }
+
+export interface RoomState {
+  index: number;
+  def: RoomDef;
+  tiles: string[][];
+  items: Item[];
+  cacti: CactusState[];
+  mines: MineState[];
+  targets: TargetState[];
+  bridgesDown: boolean;
+  gateOpen: boolean;
+  boatsTotal: number;
+  boatsHome: number;
+  /** Hidden boats in the room (not needed for the gate) and how many were found this attempt. */
+  hiddenTotal: number;
+  hiddenHome: number;
+  jets: JetState[];
+  bombs: BombState[];
+  /** Ticks since the room (re)loaded: jets and gusts run on this clock, so a room replays exactly. */
+  t: number;
+  spawn: { x: number; y: number };
 }
 
-/** Left/Right press-and-hold state (§7). */
-interface Horizontal {
-  dir: Dir;
-  pressTick: number;
-  tie: boolean;
-  resetPending: boolean; // held keys act as a new press on the next allowed tick
-  prevHeldL: boolean;
-  prevHeldR: boolean;
+export interface Player extends Box {
+  vx: number;
+  vy: number;
+  body: BodyKind;
+  onGround: boolean;
+  jumping: boolean;
+  coyote: number;
+  buffer: number;
+  fuel: number;
+  carrying: Item | null;
+  facing: 1 | -1;
+  foldTicks: number;
+  deadTicks: number;
+  /** The item you just set down; the hook ignores it until you fly away from it (HW-001). */
+  lastDropped: number | null;
+  /** Downward speed at the last landing, for the view's squash. */
+  landSpeed: number;
+  /** Position before this tick, for drawing between ticks. */
+  px: number;
+  py: number;
 }
 
-export interface Level1 {
-  active: boolean;
-  scriptSpawner: Mover;
-  crossSpawned: boolean;
-  crossGoneTick: number | null;
-  diveState: 'waiting' | 'pending' | 'active' | 'gone';
-  boatConditionTick: number | null; // T_c
-  boatDueTick: number | null;
-  boatEverSpawned: boolean;
-  moved: boolean;
-  fired: boolean;
-}
-
-export type GameEvent =
-  | 'fire' | 'jetKill' | 'tankHit' | 'bombDrop' | 'chopperOn' | 'chopperOff' | 'hook' | 'drop'
-  | 'rescue' | 'drown' | 'sink' | 'boatSpawn' | 'mineSpawn' | 'mineClear' | 'mineExpire'
-  | 'jump' | 'land' | 'levelClear' | 'gameOver' | 'move' | 'fuelOut';
-
-/** Cosmetic effects. Never read by game logic (§3: impact art occupies no cell). */
-export interface Fx {
-  kind: 'shellHit' | 'jetHitTank' | 'bombHitTank' | 'drawbridge' | 'mineShrink' | 'splash';
-  col: number;
-  row: number;
+export interface Game {
+  rooms: RoomDef[];
+  room: RoomState;
+  player: Player;
+  entryBody: BodyKind;
+  shell: Projectile | null;
+  charge: Projectile | null;
   tick: number;
+  score: number;
+  /** Points earned in this room; banked only when you leave it (design: no farming). */
+  roomPoints: number;
+  deaths: number;
+  roomDeaths: number;
+  loops: number;
+  events: GameEvent[];
+  /** Index into STAGES of the current room's stage (0 = Riverside Road). Test rooms report 0. */
+  stageIndex: number;
+  /** Required boats rescued, banked when you leave each room (for the results card). */
+  boatsSaved: number;
+  /** Hidden boats found, banked when you leave each room. */
+  hiddenSaved: number;
+  /** Ids of rooms the player skipped (they score 0; listed on the results card). */
+  skipped: string[];
+  /**
+   * The run is over: set when you leave the last room of the game (for now the last room of Storm
+   * Front; the Bomber finale will slot in before it). The UI opens the results card on it, and the
+   * sim stops ticking. Only the real game list ends; other room lists (tests) loop.
+   */
+  complete: boolean;
 }
 
 export interface GameOptions {
-  seed: number;
-  /** Start with the level-1 script (default true). False starts straight in normal play. */
-  level1?: boolean;
-  /** Tests: disable the normal jet spawner. */
-  noSpawns?: boolean;
-  score?: number;
+  rooms?: RoomDef[];
+  startRoom?: number;
 }
 
-export interface Game extends RngHolder {
-  seed: number;
-  tick: number; // index of the next tick to run
-  score: number;
-  lives: number;
-  drowned: number;
-  boatsUnlocked: boolean;
-  minesUnlocked: boolean;
-  firstJetDone: boolean;
-  crisis: Crisis;
-  schedElapsed: number;
-  schedRestartTick: number;
-  schedDue: boolean;
-  pendingBoat: boolean;
-  forceMineNext: boolean;
-  lastPick: 'Boat' | 'Mine' | null;
-  spawner: Mover & { enabled: boolean };
-  jets: Jet[];
-  bombs: Bomb[];
-  shell: Shell | null;
-  boat: Boat | null;
-  mine: Mine | null;
-  flightBudget: number | null;
-  rescueClearUsed: boolean;
-  frozenBand: Band | null;
-  player: Player;
-  hz: Horizontal;
-  level1: Level1;
-  messages: Messages;
-  events: GameEvent[];
-  fx: Fx[];
-  gameOver: GameOverReason | null;
-  nextId: number;
-  // Positions for the §4 swap tests: tank at tick start and after step 2.
-  tankStart: { col: number; row: number };
-  tankAfter2: { col: number; row: number };
-}
+// ---------------------------------------------------------------- rooms
 
-// ---------------------------------------------------------------------------------------------
-// Construction
-
-export function createGame(opts: GameOptions): Game {
-  const level1On = opts.level1 ?? true;
-  const g: Game = {
-    seed: opts.seed,
-    rngState: opts.seed | 0,
-    tick: 0,
-    score: 0,
-    lives: Tunables.startLives,
-    drowned: 0,
-    boatsUnlocked: false,
-    minesUnlocked: false,
-    firstJetDone: false,
-    crisis: 'None',
-    schedElapsed: 0,
-    schedRestartTick: -1,
-    schedDue: false,
-    pendingBoat: false,
-    forceMineNext: false,
-    lastPick: null,
-    spawner: { acc: 0, lastInterval: DifficultyTable.A.jetSpawnMs, bornTick: 0, enabled: !level1On && !opts.noSpawns },
-    jets: [],
-    bombs: [],
-    shell: null,
-    boat: null,
-    mine: null,
-    flightBudget: null,
-    rescueClearUsed: false,
-    frozenBand: null,
-    player: {
-      mode: 'tank', col: CENTRE_COL, row: LANE_ROW, invulnLeft: 0, lockLeft: 0, airLeft: 0,
-      cooldownLeft: 0, respawnDue: false, wreck: null, lastHitTick: null, chopperLastMove: null, pendingMove: 0,
-    },
-    hz: { dir: 0, pressTick: 0, tie: false, resetPending: false, prevHeldL: false, prevHeldR: false },
-    level1: {
-      active: level1On,
-      scriptSpawner: { acc: 0, lastInterval: DifficultyTable.A.jetSpawnMs, bornTick: 0 },
-      crossSpawned: false,
-      crossGoneTick: null,
-      diveState: 'waiting',
-      boatConditionTick: null,
-      boatDueTick: null,
-      boatEverSpawned: false,
-      moved: false,
-      fired: false,
-    },
-    messages: createMessages(),
-    events: [],
-    fx: [],
-    gameOver: null,
-    nextId: 1,
-    tankStart: { col: CENTRE_COL, row: LANE_ROW },
-    tankAfter2: { col: CENTRE_COL, row: LANE_ROW },
+function loadRoom(defs: RoomDef[], index: number): RoomState {
+  const def = defs[index];
+  const tiles = def.rows.map((r) => [...r]);
+  const items: Item[] = [];
+  const cacti: CactusState[] = [];
+  const mines: MineState[] = [];
+  const targets: TargetState[] = [];
+  const jets: JetState[] = [];
+  let spawn = { x: TILE, y: 0 };
+  let nextId = 1;
+  for (let row = 0; row < ROOM_H; row++) {
+    for (let col = 0; col < ROOM_W; col++) {
+      const ch = tiles[row][col];
+      const x = col * TILE;
+      const y = row * TILE;
+      if (ch === 'P') spawn = { x: x + (TILE - PLAYER_W) / 2, y: y + TILE - PLAYER_H };
+      else if (ch === 'K') items.push(newItem(nextId++, 'crate', x, y + TILE - Crate.h));
+      else if (ch === 'B') items.push(newItem(nextId++, 'boat', x, y + TILE - Boat.h));
+      else if (ch === 'b') items.push({ ...newItem(nextId++, 'boat', x, y + TILE - Boat.h), hidden: true });
+      else if (ch === 'J' || ch === 'j') jets.push(crossJet(jets.length + 1, col, row, ch === 'J' ? 1 : -1));
+      else if (ch === 'D') jets.push(diveJet(jets.length + 1, col));
+      else if (ch === 'h') jets.push({ ...crossJet(jets.length + 1, col, row, 1), harmless: true });
+      else if (ch === 'C') cacti.push({ col, row, grown: true, timer: 0, age: Cactus.sproutTicks });
+      else if (ch === 'T') targets.push({ col, row, hit: false });
+      else if (ch === 'M') mines.push({ x: x + (TILE - Mine.w) / 2, y: y + TILE - Mine.h + 4, w: Mine.w, h: Mine.h, vx: -Mine.speed, alive: true, minX: 0, maxX: 0 });
+      else continue;
+      if (ch !== 'T') tiles[row][col] = '.';
+    }
+  }
+  const room: RoomState = {
+    index, def, tiles, items, cacti, mines, targets, spawn, jets, bombs: [], t: 0,
+    bridgesDown: false, gateOpen: false, boatsHome: 0, hiddenHome: 0,
+    boatsTotal: items.filter((i) => i.kind === 'boat' && !i.hidden).length,
+    hiddenTotal: items.filter((i) => i.hidden).length,
   };
-  if (opts.score) setScore(g, opts.score);
-  g.spawner.lastInterval = DifficultyTable[activeBand(g)].jetSpawnMs;
-  return g;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Derived state
-
-export const isChopper = (g: Game) => g.player.mode === 'chopperFree' || g.player.mode === 'chopperHooked';
-
-export function playerMode(g: Game): PlayerMode {
-  const p = g.player;
-  if (p.mode === 'chopperFree') return 'ChopperFree';
-  if (p.mode === 'chopperHooked') return 'ChopperHooked';
-  if (p.invulnLeft > 0) return 'TankInvuln';
-  if (p.mode === 'jump') return 'TankJump';
-  return 'Tank';
-}
-
-/** §8: SkyPolicy active iff PlayerMode ∈ Chopper* ∧ Crisis == Boat. */
-export const skyPolicy = (g: Game) => isChopper(g) && g.crisis === 'Boat';
-
-/** §3: soft ceiling 3 cells above the lane (row 6) while mines are locked, 2 cells (row 7) after. */
-export const ceilingRow = (g: Game) => (g.minesUnlocked ? LANE_ROW - 2 : LANE_ROW - 3);
-
-/** §6: live from score in Tank modes, frozen while in the chopper. */
-export const activeBand = (g: Game): Band => g.frozenBand ?? bandForScore(g.score);
-
-export const lastTick = (g: Game) => g.tick - 1;
-
-/** L1 last-life net: on while lives = 1 before the rescue. */
-export const lastLifeNetOn = (g: Game) => g.level1.active && g.lives === 1;
-
-export function jetInterval(g: Game, j: Jet): number {
-  const row = DifficultyTable[activeBand(g)];
-  const sky = skyPolicy(g);
-  if (j.path === 'dive') return sky ? row.rescueJetStepMs : row.jetStepMs;
-  return sky ? row.rescueCrossStepMs : row.crossStepMs;
-}
-
-export function bombInterval(g: Game): number {
-  const row = DifficultyTable[activeBand(g)];
-  return skyPolicy(g) ? row.rescueBombStepMs : row.bombStepMs;
-}
-
-const spawnerInterval = (g: Game) => DifficultyTable[activeBand(g)].jetSpawnMs;
-
-// ---------------------------------------------------------------------------------------------
-// Movers (§9 step accumulators, held-back counters, speed change)
-
-/** Rescale on an interval change: keep the fraction of progress, never owe a step. */
-function rescale(m: Mover, newInterval: number): void {
-  if (m.lastInterval === newInterval) return;
-  m.acc = m.capped
-    ? newInterval - 1 // a capped counter stays capped (§9 Held-back counters)
-    : Math.min(Math.floor((m.acc * newInterval) / m.lastInterval), newInterval - 1);
-  m.lastInterval = newInterval;
-}
-
-/** Re-read every mover's interval after a band or SkyPolicy change. Call at each change, in order. */
-function syncIntervals(g: Game): void {
-  for (const j of g.jets) rescale(j, jetInterval(g, j));
-  const bi = bombInterval(g);
-  for (const b of g.bombs) rescale(b, bi);
-  rescale(g.spawner, spawnerInterval(g));
-}
-
-/** One tick of a mover in step 3. Returns true if it takes a step. */
-function advance(m: Mover, interval: number, blocked: boolean, t: number): boolean {
-  if (m.bornTick === t) return false; // gains nothing on the tick it appears
-  if (blocked) {
-    m.acc = Math.min(m.acc + S, interval - 1);
-    m.capped = m.acc === interval - 1;
-    return false;
+  room.gateOpen = gateShouldOpen(room);
+  // A mine patrols the water surface it starts on: the run of water tiles under it.
+  for (const m of mines) {
+    const row = Math.floor((m.y + m.h) / TILE);
+    let lo = Math.floor((m.x + m.w / 2) / TILE);
+    let hi = lo;
+    while (lo > 0 && tiles[row]?.[lo - 1] === '~') lo--;
+    while (hi < ROOM_W - 1 && tiles[row]?.[hi + 1] === '~') hi++;
+    m.minX = lo * TILE;
+    m.maxX = (hi + 1) * TILE - m.w;
   }
-  // RG-003: "capped" used to be inferred from acc === interval − 1, but a mover that is never held
-  // reaches that value naturally when gcd(60, interval) = 1 (band-C cross jet 283, spawner 943), and
-  // it then lost its carry and fell a tick behind (invariant 31). Only a real block sets the flag,
-  // so only a held-back counter gets the remainder-0 rule.
-  const wasCapped = m.capped === true;
-  m.capped = false;
-  m.acc += S;
-  if (m.acc >= interval) {
-    m.acc = wasCapped ? 0 : m.acc - interval;
-    return true;
+  return room;
+}
+
+/** The gate opens when the room's boats are home (and, in a jets room, every jet is down). */
+function gateShouldOpen(room: RoomState): boolean {
+  return room.boatsHome >= room.boatsTotal && !(room.def.gateNeedsJets && room.jets.some((j) => j.alive));
+}
+
+function openGateIfDone(g: Game): void {
+  const room = g.room;
+  if (!room.gateOpen && gateShouldOpen(room)) {
+    room.gateOpen = true;
+    emit(g, 'gateOpen', ROOM_PX_W - TILE / 2, ROOM_PX_H / 2);
   }
+}
+
+function newItem(id: number, kind: Item['kind'], x: number, y: number): Item {
+  const s = kind === 'crate' ? Crate : Boat;
+  return { id, kind, x, y, w: s.w, h: s.h, vx: 0, vy: 0, carried: false, floating: false, onGround: false, rescued: false, drownLeft: Boat.drownTicks, hidden: false };
+}
+
+/** A cross jet at a map cell: it flies at that row; its column staggers its first entry. */
+function crossJet(id: number, col: number, row: number, dir: 1 | -1): JetState {
+  const j: JetState = {
+    id, kind: 'cross', alive: true, phase: 'wait', timer: 1 + col * Jet.staggerTicks, dir,
+    bombCd: 0, aimX: 0, pullY: 0, respawn: 0, scored: false, harmless: false, x: 0, y: row * TILE + (TILE - Jet.h) / 2, w: Jet.w, h: Jet.h,
+  };
+  parkJet(j);
+  return j;
+}
+
+/** A dive jet: its column staggers its first dive. It waits above the top of the room. */
+function diveJet(id: number, col: number): JetState {
+  return {
+    id, kind: 'dive', alive: true, phase: 'wait', timer: Jet.firstDiveTicks + col * Jet.staggerTicks,
+    dir: 1, bombCd: 0, aimX: 0, pullY: 0, respawn: 0, scored: false, harmless: false, x: -100, y: -Jet.h - 40, w: Jet.w, h: Jet.h,
+  };
+}
+
+/** Put a cross jet just off the edge it enters from. */
+function parkJet(j: JetState): void {
+  j.x = j.dir === 1 ? -j.w - 4 : ROOM_PX_W + 4;
+}
+
+export function tileAt(room: RoomState, col: number, row: number): string {
+  if (col < 0) return '#'; // the left edge is a wall
+  if (col >= ROOM_W || row < 0 || row >= ROOM_H) return '.';
+  return room.tiles[row][col];
+}
+
+export function isSolidTile(room: RoomState, col: number, row: number): boolean {
+  const ch = tileAt(room, col, row);
+  if (ch === '#' || ch === 'H' || ch === 'x' || ch === 'W') return true;
+  if (ch === '=') return room.bridgesDown;
+  if (ch === 'G') return !room.gateOpen;
   return false;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Score, crisis, mode helpers
+const isWaterAt = (room: RoomState, x: number, y: number) =>
+  tileAt(room, Math.floor(x / TILE), Math.floor(y / TILE)) === '~';
 
-function setScore(g: Game, value: number): void {
-  g.score = Math.min(value, Tunables.scoreMax);
-  if (!g.boatsUnlocked && g.score >= Tunables.boatUnlockScore && !g.level1.active) g.boatsUnlocked = true;
-  if (!g.minesUnlocked && g.score >= Tunables.mineUnlockScore) {
-    g.minesUnlocked = true;
-    g.forceMineNext = true; // §6 crisis scheduler: first pick after the unlock is a mine
+/** Top of the water column at (x, y), or null if that point isn't in water. */
+function waterSurface(room: RoomState, x: number, y: number): number | null {
+  const col = Math.floor(x / TILE);
+  let row = Math.floor(y / TILE);
+  if (tileAt(room, col, row) !== '~') return null;
+  while (row > 0 && tileAt(room, col, row - 1) === '~') row--;
+  return row * TILE;
+}
+
+// ---------------------------------------------------------------- collision
+
+const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+/** Crates that are resting in the world act as solid blocks for the player and for other items. */
+function solidCrates(room: RoomState, except: Item | null): Item[] {
+  return room.items.filter((i) => i.kind === 'crate' && !i.carried && !i.rescued && i !== except);
+}
+
+/** How far `box` can move by (dx, dy) along one axis before hitting a solid. */
+function sweep(room: RoomState, box: Box, dx: number, dy: number, extras: Box[]): number {
+  const b = { x: box.x + dx, y: box.y + dy, w: box.w, h: box.h };
+  const c0 = Math.floor(b.x / TILE);
+  const c1 = Math.floor((b.x + b.w - 0.001) / TILE);
+  const r0 = Math.floor(b.y / TILE);
+  const r1 = Math.floor((b.y + b.h - 0.001) / TILE);
+  const blockers: Box[] = [];
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    if (isSolidTile(room, c, r)) blockers.push({ x: c * TILE, y: r * TILE, w: TILE, h: TILE });
   }
-}
-
-function addScore(g: Game, points: number): void {
-  setScore(g, g.score + points);
-  syncIntervals(g); // a band change applies after this tick's steps (§9 speed change)
-}
-
-function restartScheduler(g: Game): void {
-  g.schedElapsed = 0;
-  g.schedRestartTick = g.tick;
-  g.schedDue = false;
-}
-
-/** Crisis → None. Discards the flight budget; river bombs vanish (§4 Boats item 4). */
-function endCrisis(g: Game): void {
-  g.crisis = 'None';
-  g.boat = null;
-  g.mine = null;
-  g.flightBudget = null;
-  g.bombs = g.bombs.filter((b) => !b.river);
-  restartScheduler(g);
-}
-
-/** §9 Return stampede: threats stacked at the ceiling resume on staggered slots by X. */
-function onSkyLift(g: Game): void {
-  const ceil = ceilingRow(g);
-  const stacked: (Jet | Bomb)[] = [
-    ...g.jets.filter((j) => j.path === 'dive' && j.row === ceil),
-    ...g.bombs.filter((b) => !b.river && b.row === ceil),
-  ];
-  stacked.sort((a, b) => a.col - b.col || a.id - b.id);
-  stacked.forEach((m, i) => (m.stagger = i % 3));
-}
-
-/** §9 SkyPolicy item 0: rescue-start clear once per crisis; later turn-ons remove river bombs only. */
-function onSkyOn(g: Game): void {
-  const ceil = ceilingRow(g);
-  if (!g.rescueClearUsed) {
-    g.jets = g.jets.filter((j) => j.row <= ceil);
-    g.bombs = g.bombs.filter((b) => b.row <= ceil);
-    g.rescueClearUsed = true;
-  } else {
-    g.bombs = g.bombs.filter((b) => !b.river);
+  for (const e of extras) if (overlaps(b, e) && !overlaps(box, e)) blockers.push(e);
+  let move = dx !== 0 ? dx : dy;
+  for (const k of blockers) {
+    if (!overlaps(b, k)) continue;
+    if (dx > 0) move = Math.min(move, k.x - (box.x + box.w));
+    else if (dx < 0) move = Math.max(move, k.x + k.w - box.x);
+    else if (dy > 0) move = Math.min(move, k.y - (box.y + box.h));
+    else if (dy < 0) move = Math.max(move, k.y + k.h - box.y);
   }
-  for (const j of g.jets) j.stagger = null;
-  for (const b of g.bombs) b.stagger = null;
+  // Never move backwards out of a sweep (a blocker already overlapping is ignored above).
+  if (dx > 0 || dy > 0) move = Math.max(0, move);
+  else move = Math.min(0, move);
+  return move;
 }
 
-function enterChopper(g: Game): void {
+// ---------------------------------------------------------------- game
+
+/**
+ * A new run. With no options it starts the real game: stage 1 (Riverside Road), room 1, through all
+ * the stages in STAGES. `rooms` swaps in another room list (tests, the feel-check TEST_ROOMS).
+ */
+export function createGame(opts: GameOptions = {}): Game {
+  const rooms = opts.rooms ?? GAME_ROOMS;
+  const room = loadRoom(rooms, opts.startRoom ?? 0);
+  const body = room.def.startBody ?? 'tank';
+  const g: Game = {
+    rooms, room, player: newPlayer(room, body), entryBody: body,
+    shell: null, charge: null, tick: 0, score: 0, roomPoints: 0, deaths: 0, roomDeaths: 0, loops: 0,
+    events: [], stageIndex: room.def.stage ?? 0, boatsSaved: 0, hiddenSaved: 0, skipped: [], complete: false,
+  };
+  return g;
+}
+
+/** The current stage, for the HUD, saves and the results card. */
+export function stageInfo(g: Game): { index: number; name: string; roomInStage: number; roomsInStage: number; stageCount: number } {
+  const def = g.room.def;
+  const stage = STAGES[g.stageIndex];
+  const inThisStage = g.rooms.filter((r) => (r.stage ?? 0) === g.stageIndex);
+  return {
+    index: g.stageIndex,
+    name: def.stage === undefined ? def.name : stage?.name ?? def.name,
+    roomInStage: Math.max(0, inThisStage.indexOf(def)) + 1,
+    roomsInStage: inThisStage.length,
+    stageCount: STAGES.length,
+  };
+}
+
+/** Index (into g.rooms) of the first room of a stage, for Continue; -1 if that stage isn't in the list. */
+export function firstRoomOfStage(g: Game, stage: number): number {
+  return g.rooms.findIndex((r) => (r.stage ?? 0) === stage);
+}
+
+/**
+ * Skip this room (the offer appears after Help.skipDeaths deaths here). Its points are discarded,
+ * it is listed in g.skipped, and you start the next room fresh at its entrance.
+ */
+export function skipRoom(g: Game): void {
+  g.skipped.push(g.room.def.id);
+  g.roomPoints = 0;
+  emit(g, 'skip', cx(g.player), cy(g.player));
+  enterRoom(g, g.room.index + 1, false);
+}
+
+/** Jump straight to a room (Continue from a saved stage, debug tools): you start fresh at its entrance. */
+export function goToRoom(g: Game, index: number): void {
+  g.roomPoints = 0;
+  enterRoom(g, index, false);
+}
+
+/** The wind's push this tick (px/s, + is right): 0 outside a gust or in a room without wind. */
+export function windAt(room: RoomState): number {
+  const w = room.def.wind;
+  if (!w) return 0;
+  const phase = (room.t + (w.offset ?? 0)) % w.period;
+  if (phase >= w.duty) return 0;
+  const env = Math.min(1, phase / Wind.rampTicks, (w.duty - phase) / Wind.rampTicks);
+  return w.dir * w.speed * env;
+}
+
+function newPlayer(room: RoomState, body: BodyKind): Player {
+  const { x, y } = room.spawn;
+  return {
+    x, y, w: PLAYER_W, h: PLAYER_H, vx: 0, vy: 0, body, onGround: false, jumping: false, coyote: 0, buffer: 0,
+    fuel: Chopper.fuelTicks, carrying: null, facing: 1, foldTicks: 0, deadTicks: 0,
+    lastDropped: null, landSpeed: 0, px: x, py: y,
+  };
+}
+
+const emit = (g: Game, type: EventType, x: number, y: number, extra: Partial<GameEvent> = {}) =>
+  g.events.push({ type, x, y, ...extra });
+
+const cx = (b: Box) => b.x + b.w / 2;
+const cy = (b: Box) => b.y + b.h / 2;
+
+function resetRoom(g: Game): void {
+  g.room = loadRoom(g.rooms, g.room.index);
+  g.stageIndex = g.room.def.stage ?? 0;
+  g.player = newPlayer(g.room, g.entryBody);
+  g.shell = null;
+  g.charge = null;
+  g.roomPoints = 0;
+  emit(g, 'respawn', cx(g.player), cy(g.player));
+}
+
+/**
+ * Enter room `index` (past the last room the game is complete and wraps to the first). With
+ * `carry`, the room's points and boats are banked and you arrive in the body and at the speed you
+ * left in; without (skip, Continue), you start fresh at the entrance in the room's start body.
+ */
+function enterRoom(g: Game, index: number, carry = true): void {
   const p = g.player;
-  g.frozenBand = bandForScore(g.score);
-  p.mode = 'chopperFree';
-  p.row = CHOPPER_ROW;
-  p.chopperLastMove = null;
-  p.pendingMove = 0;
-  g.hz.resetPending = true;
-  onSkyOn(g);
-  syncIntervals(g);
-  g.events.push('chopperOn');
+  if (carry) {
+    g.score += g.roomPoints;
+    g.boatsSaved += g.room.boatsHome;
+    g.hiddenSaved += g.room.hiddenHome;
+  }
+  g.roomPoints = 0;
+  g.roomDeaths = 0;
+  const wrapped = index >= g.rooms.length;
+  if (wrapped && g.rooms === GAME_ROOMS) {
+    // The end of the run: stay where you are; the UI shows the results card.
+    g.complete = true;
+    g.player.vx = 0;
+    emit(g, 'complete', cx(p), cy(p));
+    return;
+  }
+  const next = wrapped ? 0 : index;
+  if (wrapped) g.loops++;
+  g.room = loadRoom(g.rooms, next);
+  g.stageIndex = g.room.def.stage ?? 0;
+  const def = g.room.def;
+  // You keep your body into the next room, unless that room doesn't allow switching.
+  const body: BodyKind = !carry || !def.canSwitch ? def.startBody ?? 'tank' : p.body;
+  g.entryBody = body;
+  const np = newPlayer(g.room, body);
+  if (carry && body === p.body) {
+    np.vx = p.vx;
+    np.vy = Math.min(p.vy, 0);
+    np.facing = p.facing;
+    np.fuel = p.fuel;
+  }
+  g.player = np;
+  g.shell = null;
+  g.charge = null;
+  emit(g, wrapped ? 'loop' : 'roomEnter', cx(np), cy(np), { n: next });
 }
 
-/** Back to Tank at the current column, lane row 9 (Up, rescue, budget out, drowning while flying). */
-function returnToTank(g: Game, skyWasOn: boolean): void {
+function die(g: Game, cause: GameEvent['cause']): void {
   const p = g.player;
-  p.mode = 'tank';
-  p.row = LANE_ROW;
-  p.pendingMove = 0;
-  g.hz.resetPending = true;
-  g.frozenBand = null; // band recomputed from the current score (§6 item 3)
-  if (skyWasOn) onSkyLift(g);
-  syncIntervals(g);
-  g.events.push('chopperOff');
+  if (p.deadTicks > 0) return;
+  emit(g, 'death', cx(p), cy(p), { cause, n: p.body === 'tank' ? 0 : 1 });
+  if (cause === 'water') emit(g, 'splash', cx(p), p.y + p.h);
+  if (p.carrying) p.carrying.carried = false;
+  p.carrying = null;
+  p.deadTicks = Death.respawnTicks;
+  p.vx = 0;
+  p.vy = 0;
+  g.deaths++;
+  g.roomDeaths++;
+  g.shell = null;
+  g.charge = null;
 }
 
-function rescue(g: Game): void {
-  const tutorial = g.boat?.tutorial ?? false;
-  const skyWasOn = skyPolicy(g);
-  g.fx.push({ kind: 'drawbridge', col: g.player.col, row: HOOKED_BOAT_ROW, tick: g.tick });
-  addScore(g, 500);
-  raise(g.messages, '+500 RESCUE', g.tick);
-  endCrisis(g);
-  returnToTank(g, skyWasOn);
-  g.events.push('rescue');
-  if (tutorial) clearLevel1(g);
+function approach(v: number, target: number, step: number): number {
+  return v < target ? Math.min(target, v + step) : Math.max(target, v - step);
 }
 
-/** L1 After LEVEL 1 CLEAR: script ends, the normal spawner starts at 0 on the rescue tick. */
-function clearLevel1(g: Game): void {
-  g.level1.active = false;
-  raise(g.messages, 'LEVEL 1 CLEAR', g.tick);
-  g.spawner.enabled = true;
-  g.spawner.acc = 0;
-  g.spawner.bornTick = g.tick;
-  g.spawner.lastInterval = spawnerInterval(g);
-  if (g.score >= Tunables.boatUnlockScore) g.boatsUnlocked = true;
-  g.events.push('levelClear');
-}
-
-/** A boat lost to drowning, a bomb sink or (tutorial only) fuel-out. */
-function loseBoat(g: Game, cause: 'drown' | 'sink' | 'fuelOut'): void {
-  const tutorial = g.boat?.tutorial ?? false;
-  const flying = isChopper(g);
-  const skyWasOn = skyPolicy(g);
-  if (cause === 'sink' && g.boat) g.fx.push({ kind: 'splash', col: g.boat.col, row: g.boat.row, tick: g.tick });
-  endCrisis(g);
-  if (flying) returnToTank(g, skyWasOn);
-  if (tutorial) {
-    // L1 SAFE BOAT: replay without counting, 960 ms later.
-    raise(g.messages, 'BOAT LOST', g.tick);
-    raise(g.messages, 'TRY AGAIN', g.tick);
-    g.level1.boatDueTick = g.tick + Tunables.tutorialBeatMs / S;
-  } else {
-    g.drowned += 1;
-    raise(g.messages, cause === 'sink' ? 'BOAT SUNK' : 'BOAT LOST', g.tick);
-  }
-  g.events.push(cause === 'sink' ? 'sink' : cause === 'fuelOut' ? 'fuelOut' : 'drown');
-}
-
-function removeJet(g: Game, j: Jet): void {
-  g.jets = g.jets.filter((x) => x !== j);
-  const l1 = g.level1;
-  if (j.script === 'l1cross') {
-    l1.crossGoneTick = g.tick;
-    if (l1.diveState === 'waiting') l1.diveState = 'pending';
-  } else if (j.script === 'l1dive') {
-    l1.diveState = 'gone';
-  }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Spawning
-
-function spawnJet(g: Game, path: 'dive' | 'cross', col: number, dir: Dir, script: Jet['script'] = null): Jet {
-  const j: Jet = {
-    id: g.nextId++, path, col, row: 0, dir, opp: 0, bombsDropped: 0, guaranteedIndex: null, script,
-    stagger: null, prevCol: null, prevRow: null, acc: 0, lastInterval: 0, bornTick: g.tick,
-  };
-  j.lastInterval = jetInterval(g, j);
-  if (!g.firstJetDone) {
-    // §4 Bombs: the run's first jet has one guaranteed drop on a uniformly chosen on-screen cell.
-    g.firstJetDone = true;
-    j.guaranteedIndex = randInt(g, path === 'dive' ? 9 : COLS);
-  }
-  g.jets.push(j);
-  dropOpportunity(g, j); // the spawn cell is a drop opportunity
-  return j;
-}
-
-function spawnRandomJet(g: Game): void {
-  if (rngNext(g) < Tunables.jetCrossChance) {
-    const fromLeft = rngNext(g) < 0.5;
-    spawnJet(g, 'cross', fromLeft ? 0 : COLS - 1, fromLeft ? 1 : -1);
-  } else {
-    spawnJet(g, 'dive', randInt(g, COLS), 0);
-  }
-}
-
-/** §4 Bombs: one opportunity per cell entered on rows 0–8 while on screen. */
-function dropOpportunity(g: Game, j: Jet): void {
-  if (j.row > JUMP_ROW) return;
-  const idx = j.opp++;
-  if (skyPolicy(g)) return; // skipped opportunities are lost
-  const band = DifficultyTable[activeBand(g)];
-  if (j.bombsDropped >= band.bombsPerJetMax) return;
-  const drop = j.guaranteedIndex === idx ? true : rngNext(g) < band.bombDropChance;
-  if (!drop) return;
-  j.bombsDropped += 1;
-  addBomb(g, j.col, j.row + 1);
-  g.events.push('bombDrop');
-}
-
-export function addBomb(g: Game, col: number, row: number): Bomb {
-  const b: Bomb = {
-    id: g.nextId++, col, row, dropTick: g.tick, river: false, stagger: null, prevCol: null, prevRow: null,
-    acc: 0, lastInterval: bombInterval(g), bornTick: g.tick,
-  };
-  g.bombs.push(b);
-  return b;
-}
-
-/** Tests and tools: place a jet directly. */
-export function addJet(g: Game, path: 'dive' | 'cross', col: number, row = 0, dir: Dir = 0): Jet {
-  const j: Jet = {
-    id: g.nextId++, path, col, row, dir, opp: row + 1, bombsDropped: 0, guaranteedIndex: null, script: null,
-    stagger: null, prevCol: null, prevRow: null, acc: 0, lastInterval: 0, bornTick: g.tick - 1,
-  };
-  j.lastInterval = jetInterval(g, j);
-  g.firstJetDone = true;
-  g.jets.push(j);
-  return j;
-}
-
-/** §4 Boats: bomb-free column = no falling bomb on rows 1–10. */
-function columnBombFree(g: Game, col: number): boolean {
-  return !g.bombs.some((b) => b.col === col && b.row >= 1 && b.row <= GROUND_ROW);
-}
-
-export function startBoatCrisis(g: Game, col: number, row: number, tutorial: boolean): void {
-  const band = activeBand(g);
-  const drown = DifficultyTable[band].drownTimerMs;
-  g.crisis = 'Boat';
-  g.mine = null; // Crisis XOR
-  g.boat = { col, row, drownLeft: drown, drownTotal: drown, hooked: false, tutorial, spawnTick: g.tick };
-  g.flightBudget = Tunables.flightBudgetMs;
-  g.rescueClearUsed = false;
-  g.events.push('boatSpawn');
-}
-
-function trySpawnBoat(g: Game): boolean {
-  const cols: number[] = [];
-  for (let c = 2; c <= 15; c++) if (columnBombFree(g, c)) cols.push(c);
-  if (cols.length === 0) return false;
-  const col = cols[randInt(g, cols.length)];
-  const row = randInt(g, 2) === 0 ? 12 : 13;
-  startBoatCrisis(g, col, row, false);
-  return true;
-}
-
-function spawnMine(g: Game): void {
-  const tankCol = g.player.col;
-  const cols: number[] = [];
-  for (let c = 0; c < COLS; c++) if (Math.abs(c - tankCol) >= Tunables.mineMinGapCols) cols.push(c);
-  g.crisis = 'Mine';
-  g.mine = { col: cols[randInt(g, cols.length)], lifeLeft: Tunables.mineLifetimeMs, spawnTick: g.tick };
-  g.events.push('mineSpawn');
-}
-
-// ---------------------------------------------------------------------------------------------
-// The tick
-
-/** Mark that the game resumed from a pause: held Left/Right act as a new press on the first tick. */
-export function markResumed(g: Game): void {
-  g.hz.resetPending = true;
-}
-
-export function tick(g: Game, input: TickInput): void {
-  if (g.gameOver) return;
+export function tick(g: Game, inp: TickInput): void {
   g.events = [];
-  const t = g.tick;
-  g.tankStart = { col: g.player.col, row: g.player.row };
-
-  step1Input(g, input);
-  step2Timers(g);
-  g.tankAfter2 = { col: g.player.col, row: g.player.row };
-  step3Threats(g);
-  step4Respawn(g);
-  step5Hits(g);
-  step6Spawns(g);
-
-  trimMessages(g.messages, t, pinnedLines(g).length);
-  g.fx = g.fx.filter((f) => t - f.tick < 20);
-  if (g.lives <= 0) g.gameOver = 'Lives';
-  else if (g.drowned >= Tunables.drownedLimit) g.gameOver = 'DrownedBoats';
-  if (g.gameOver) g.events.push('gameOver');
-  g.tick = t + 1;
-}
-
-// ---- Step 1: input and player movement ------------------------------------------------------
-
-/** Resolves this tick's Left/Right into a new press (with direction) or a hold repeat (§7). */
-function resolveHorizontal(g: Game, inp: TickInput): { press: Dir; repeatDir: Dir } {
-  const hz = g.hz;
-  const t = g.tick;
-  const heldL = inp.held.left;
-  const heldR = inp.held.right;
-  let pL = inp.press.left;
-  let pR = inp.press.right;
-  if (hz.resetPending) {
-    // Held through the lock or a mode change: a held key acts as a new press now.
-    pL = pL || heldL;
-    pR = pR || heldR;
-    hz.resetPending = false;
-    hz.dir = 0;
-    hz.tie = false;
-  }
-  if (hz.prevHeldL && hz.prevHeldR) {
-    // Release with the other key held: the still-held key acts as a new press.
-    if (!heldL && heldR) pR = true;
-    if (!heldR && heldL) pL = true;
-  }
-  hz.prevHeldL = heldL;
-  hz.prevHeldR = heldR;
-
-  let press: Dir = 0;
-  if (pL && pR) {
-    const hl = heldL;
-    const hr = heldR;
-    if (hl && hr) {
-      hz.tie = true;
-      hz.dir = 0;
-    } else if (hl || hr) {
-      press = hl ? -1 : 1;
-      hz.dir = press;
-      hz.pressTick = t;
-      hz.tie = false;
-    } else {
-      hz.dir = 0; // two opposite taps: no move
-      hz.tie = false;
-    }
-    return { press, repeatDir: 0 };
-  }
-  if (pL || pR) {
-    press = pL ? -1 : 1;
-    const held = pL ? heldL : heldR;
-    const otherHeld = pL ? heldR : heldL;
-    hz.tie = false;
-    if (held) {
-      hz.dir = press;
-      hz.pressTick = t;
-    } else if (otherHeld) {
-      hz.dir = (-press) as Dir; // a tap over a held key: the held key carries on from here
-      hz.pressTick = t;
-    } else {
-      hz.dir = 0;
-    }
-    return { press, repeatDir: 0 };
-  }
-  if (hz.tie) {
-    if (!(heldL && heldR)) hz.tie = false;
-    return { press: 0, repeatDir: 0 };
-  }
-  if (hz.dir !== 0 && !(hz.dir < 0 ? heldL : heldR)) hz.dir = 0;
-  return { press: 0, repeatDir: hz.dir };
-}
-
-function moveTankHorizontally(g: Game, inp: TickInput): void {
+  if (g.complete) return; // the run is over
+  g.tick++;
   const p = g.player;
-  const { press, repeatDir } = resolveHorizontal(g, inp);
-  let d: Dir = press;
-  if (d === 0 && repeatDir !== 0) {
-    const since = g.tick - g.hz.pressTick;
-    if (since > 0 && since % (Tunables.tankMoveMs / S) === 0) d = repeatDir;
-  }
-  if (d === 0) return;
-  const nc = p.col + d;
-  if (nc < 0 || nc >= COLS) return; // walls clip
-  p.col = nc;
-  g.level1.moved = true;
-  g.events.push('move');
-}
+  p.px = p.x;
+  p.py = p.y;
 
-/** Chopper: at most one column per rate (4 ticks free, 8 hooked), one pending move (§7 Chopper cap). */
-function moveChopper(g: Game, inp: TickInput): void {
-  const p = g.player;
-  const { press, repeatDir } = resolveHorizontal(g, inp);
-  if (g.hz.tie) return;
-  const rate = (p.mode === 'chopperHooked' ? Tunables.chopperHookedMoveMs : Tunables.chopperFreeMoveMs) / S;
-  const canMove = p.chopperLastMove === null || g.tick - p.chopperLastMove >= rate;
-  let d: Dir = 0;
-  if (press !== 0) {
-    if (canMove) d = press;
-    else p.pendingMove = press;
-  } else if (p.pendingMove !== 0 && canMove) {
-    d = p.pendingMove;
-  } else if (repeatDir !== 0 && canMove) {
-    d = repeatDir;
-  }
-  if (d === 0) return;
-  p.pendingMove = 0;
-  const nc = p.col + d;
-  if (nc < 0 || nc >= COLS) return;
-  p.col = nc;
-  p.chopperLastMove = g.tick;
-  if (p.mode === 'chopperHooked' && g.boat) {
-    g.boat.col = nc;
-    if (nc === LEFT_BANK || nc === RIGHT_BANK) rescue(g);
-  }
-}
-
-function step1Input(g: Game, inp: TickInput): void {
-  const p = g.player;
-  if (p.lockLeft > 0) {
-    // Impact lock: inputs ignored, not buffered. Held Left/Right act as a new press at T_r + 1.
-    g.hz.dir = 0;
-    g.hz.tie = false;
-    g.hz.resetPending = true;
-    g.hz.prevHeldL = inp.held.left;
-    g.hz.prevHeldR = inp.held.right;
-    return;
-  }
-  const startMode = p.mode;
-
-  if (startMode === 'chopperFree' || startMode === 'chopperHooked') {
-    // Chopper order: Left/Right, then Down (hook, at the new column), then Up.
-    moveChopper(g, inp);
-    if (!isChopper(g)) return; // rescued by the move: this tick's Down and Up do nothing
-    let downTookEffect = false;
-    if (inp.press.down && startMode === 'chopperFree' && g.boat && g.crisis === 'Boat' && g.boat.col === p.col) {
-      p.mode = 'chopperHooked';
-      g.boat.hooked = true;
-      g.boat.row = HOOKED_BOAT_ROW;
-      downTookEffect = true;
-      g.events.push('hook');
-    }
-    if (inp.press.up && !downTookEffect) {
-      if (p.mode === 'chopperFree') {
-        returnToTank(g, skyPolicy(g));
-      } else if (p.mode === 'chopperHooked' && g.boat) {
-        p.mode = 'chopperFree';
-        g.boat.hooked = false;
-        g.boat.row = HOOKED_BOAT_ROW;
-        g.boat.col = p.col;
-        g.events.push('drop');
-      }
-    }
+  if (p.deadTicks > 0) {
+    p.deadTicks--;
+    if (p.deadTicks === 0) resetRoom(g);
     return;
   }
 
-  // Tank order: Left/Right, then Up (Jump), then Fire, then Down.
-  moveTankHorizontally(g, inp);
-  if (inp.press.up && p.mode === 'tank' && p.row === LANE_ROW && p.invulnLeft <= 0 && p.cooldownLeft <= 0
-      && g.minesUnlocked && g.crisis !== 'Boat') {
-    p.mode = 'jump';
-    p.row = JUMP_ROW;
-    p.airLeft = Tunables.jumpAirtimeMs;
-    g.events.push('jump');
-  }
-  if (inp.press.fire && !g.shell) {
-    g.shell = { col: p.col, row: p.row, prevRow: p.row, acc: 0, lastInterval: S, bornTick: g.tick };
-    g.level1.fired = true;
-    g.events.push('fire');
-  }
-  if (inp.press.down && p.mode !== 'jump' && g.crisis === 'Boat' && (g.flightBudget ?? 0) > 0) {
-    enterChopper(g);
-  }
+  g.room.t++;
+  const w = g.room.def.wind;
+  if (w && (g.room.t + (w.offset ?? 0)) % w.period === 0) emit(g, 'gust', w.dir === 1 ? 0 : ROOM_PX_W, ROOM_PX_H / 2, { n: w.dir });
+  updatePlayer(g, inp);
+  if (g.player !== p) return; // left the room this tick
+  updateProjectiles(g);
+  updateJets(g);
+  updateBombs(g);
+  updateItems(g);
+  updateHazards(g);
 }
 
-// ---- Step 2: timers --------------------------------------------------------------------------
+// ---------------------------------------------------------------- player
 
-function step2Timers(g: Game): void {
+function updatePlayer(g: Game, inp: TickInput): void {
   const p = g.player;
-  // Pause rule: a timer ticks only if it is running at the end of step 1.
-  const budgetRunning = isChopper(g) && g.flightBudget !== null;
-  const drownRunning = g.boat !== null && !g.boat.hooked;
-  const mineRunning = g.mine !== null;
-  const airRunning = p.mode === 'jump';
-  const cooldownRunning = p.cooldownLeft > 0;
-  const invulnRunning = p.invulnLeft > 0;
-  const lockRunning = p.lockLeft > 0;
-  const schedRunning = !g.level1.active && g.crisis === 'None' && !g.pendingBoat && g.schedRestartTick !== g.tick;
+  const room = g.room;
+  if (p.foldTicks > 0) p.foldTicks--;
 
-  if (budgetRunning && g.flightBudget !== null) {
-    g.flightBudget -= S;
-    if (g.flightBudget <= 0) {
-      g.flightBudget = 0;
-      if (g.boat?.tutorial) {
-        loseBoat(g, 'fuelOut'); // L1 Fuel out: ends the attempt at once
-      } else {
-        const skyWasOn = skyPolicy(g);
-        if (p.mode === 'chopperHooked' && g.boat) {
-          g.boat.hooked = false; // dropped in place; its timer resumes next tick
-          g.boat.row = HOOKED_BOAT_ROW;
-          g.boat.col = p.col;
-        }
-        returnToTank(g, skyWasOn);
-        g.events.push('fuelOut');
-      }
-    }
-  }
-  if (drownRunning && g.boat) {
-    g.boat.drownLeft -= S;
-    if (g.boat.drownLeft <= 0) loseBoat(g, 'drown');
-  }
-  if (mineRunning && g.mine) {
-    g.mine.lifeLeft -= S;
-    if (g.mine.lifeLeft <= 0) {
-      g.fx.push({ kind: 'mineShrink', col: g.mine.col, row: GROUND_ROW, tick: g.tick });
-      endCrisis(g);
-      g.events.push('mineExpire');
-    }
-  }
-  if (airRunning && p.mode === 'jump') {
-    p.airLeft -= S;
-    if (p.airLeft <= 0) {
-      p.mode = 'tank';
-      p.row = LANE_ROW;
-      p.cooldownLeft = Tunables.jumpCooldownMs;
-      g.events.push('land');
-    }
-  }
-  if (cooldownRunning) p.cooldownLeft -= S;
-  if (invulnRunning) p.invulnLeft = Math.max(0, p.invulnLeft - S);
-  if (lockRunning) {
-    p.lockLeft -= S;
-    if (p.lockLeft <= 0) {
-      p.lockLeft = 0;
-      p.respawnDue = true;
-    }
-  }
-  if (schedRunning) {
-    g.schedElapsed += S;
-    if (g.schedElapsed >= DifficultyTable[activeBand(g)].crisisIntervalMs) g.schedDue = true;
-  }
-}
-
-// ---- Step 3: threat and shell steps ----------------------------------------------------------
-
-function step3Threats(g: Game): void {
-  const t = g.tick;
-  const sky = skyPolicy(g);
-  const ceil = ceilingRow(g);
-  const blockedBy = (row: number, stagger: number | null) =>
-    (sky && row === ceil) || (stagger !== null && t % 3 !== stagger);
-
-  for (const j of g.jets) {
-    j.prevCol = j.col;
-    j.prevRow = j.row;
-  }
-  for (const b of g.bombs) {
-    b.prevCol = b.col;
-    b.prevRow = b.row;
-  }
-
-  // Shell: one row up per 60 ms, never held.
-  if (g.shell) {
-    const s = g.shell;
-    s.prevRow = s.row;
-    if (advance(s, S, false, t)) {
-      s.row -= 1;
-      if (s.row < 0) g.shell = null;
-    }
-  }
-
-  // Jets
-  for (const j of [...g.jets]) {
-    const interval = jetInterval(g, j);
-    const blocked = j.path === 'dive' && blockedBy(j.row, j.stagger);
-    if (!advance(j, interval, blocked, t)) continue;
-    j.stagger = null;
-    if (j.path === 'dive') {
-      j.row += 1;
-      if (j.row >= GROUND_ROW) {
-        removeJet(g, j); // ground crash: no score
-        continue;
-      }
+  // Switch body (design Q1: any time, including mid-air).
+  if (inp.press.switch && room.def.canSwitch && p.foldTicks === 0) {
+    if (p.body === 'tank') {
+      p.body = 'chopper';
+      p.jumping = false;
+      p.vy = Math.max(p.vy, -Chopper.maxRise);
     } else {
-      j.col += j.dir;
-      if (j.col < 0 || j.col >= COLS) {
-        removeJet(g, j); // wall exit: no score
-        continue;
+      p.body = 'tank';
+      if (p.carrying) release(g, p.carrying);
+      if (!p.onGround) p.vy = Math.max(p.vy, Switch.dropStartSpeed);
+    }
+    p.foldTicks = Switch.foldTicks;
+    emit(g, 'switch', cx(p), cy(p), { n: p.body === 'tank' ? 0 : 1 });
+  }
+
+  const dir = (inp.held.right ? 1 : 0) - (inp.held.left ? 1 : 0);
+  if (dir !== 0) p.facing = dir as 1 | -1;
+
+  if (p.body === 'tank') {
+    const accel = p.onGround ? (dir ? Tank.accelGround : Tank.decelGround) : (dir ? Tank.accelAir : Tank.decelAir);
+    p.vx = approach(p.vx, dir * Tank.maxSpeed, accel * DT);
+    // Coyote time counts the ticks since you last stood on something: a jump on any of the
+    // coyoteTicks ticks after leaving a ledge still works.
+    if (p.onGround) p.coyote = Tank.coyoteTicks;
+    p.buffer = inp.press.jump ? Tank.bufferTicks : Math.max(0, p.buffer - 1);
+    const canJump = p.onGround || p.coyote > 0;
+    if (!p.onGround) p.coyote = Math.max(0, p.coyote - 1);
+    if (p.buffer > 0 && canJump) {
+      p.vy = -Tank.jumpSpeed;
+      p.buffer = 0;
+      p.coyote = 0;
+      p.onGround = false;
+      p.jumping = true;
+      emit(g, 'jump', cx(p), p.y + p.h);
+    }
+    if (p.jumping && p.vy < 0 && !inp.held.jump) {
+      p.vy *= Tank.jumpCut;
+      p.jumping = false;
+    }
+    if (p.vy >= 0) p.jumping = false;
+    p.vy = Math.min(Tank.maxFall, p.vy + (p.vy < 0 ? Tank.gravityUp : Tank.gravityDown) * DT);
+  } else {
+    const top = p.carrying ? Chopper.maxSpeedCarrying : Chopper.maxSpeed;
+    p.vx = approach(p.vx, dir * top, (dir ? Chopper.accel : Chopper.decel) * DT);
+    const thrusting = inp.held.jump && p.fuel > 0;
+    if (thrusting) {
+      p.vy -= Chopper.thrust * DT;
+      p.fuel--;
+      if (p.fuel === 0) emit(g, 'fuelEmpty', cx(p), cy(p));
+    }
+    p.vy += Chopper.gravity * DT;
+    const maxDown = p.fuel > 0 ? Chopper.maxDrift : Chopper.maxSinkEmpty;
+    if (p.vy < -Chopper.maxRise) p.vy = -Chopper.maxRise;
+    // A falling tank that folds into the chopper is caught, not stopped dead: that's the mid-air switch.
+    if (p.vy > maxDown) p.vy = Math.max(maxDown, p.vy - 900 * DT);
+  }
+
+  // Action: the tank fires up; the chopper drops a charge down, or sets down what it carries.
+  if (inp.press.action) {
+    if (p.body === 'tank') {
+      if (!g.shell) {
+        g.shell = { x: cx(p) - Shell.w / 2, y: p.y - Shell.h, w: Shell.w, h: Shell.h, vy: -Shell.speed };
+        emit(g, 'fire', cx(p), p.y);
       }
-    }
-    dropOpportunity(g, j);
-  }
-
-  // Bombs
-  const bi = bombInterval(g);
-  for (const b of [...g.bombs]) {
-    if (!advance(b, bi, !b.river && blockedBy(b.row, b.stagger), t)) continue;
-    b.stagger = null;
-    b.row += 1;
-    if (b.river) {
-      if (b.row > LAST_ROW) g.bombs = g.bombs.filter((x) => x !== b);
-    } else if (b.row >= GROUND_ROW) {
-      const boat = g.boat;
-      const intoRiver = g.crisis === 'Boat' && boat !== null && !boat.hooked && b.col === boat.col
-        && !isChopper(g) && b.dropTick > boat.spawnTick;
-      if (intoRiver) b.river = true;
-      else g.bombs = g.bombs.filter((x) => x !== b);
+    } else if (p.carrying) {
+      release(g, p.carrying);
+    } else if (!g.charge) {
+      g.charge = { x: cx(p) - Charge.w / 2, y: p.y + p.h, w: Charge.w, h: Charge.h, vy: Charge.startSpeed + Math.max(0, p.vy) };
+      emit(g, 'drop', cx(p), p.y + p.h);
     }
   }
 
-  // Jet spawns
-  if (g.spawner.enabled && !g.level1.active) {
-    if (advance(g.spawner, spawnerInterval(g), sky, t)) spawnRandomJet(g);
-  }
-  if (g.level1.active) level1Spawns(g);
-}
+  movePlayer(g);
+  if (g.player !== p) return;
 
-/** L1 Script: the scripted cross jet (tick 23) and the dive jet down the tank's column. */
-function level1Spawns(g: Game): void {
-  const l1 = g.level1;
-  const t = g.tick;
-  if (!l1.crossSpawned) {
-    if (advance(l1.scriptSpawner, DifficultyTable.A.jetSpawnMs, false, t)) {
-      const fromLeft = rngNext(g) < 0.5;
-      spawnJet(g, 'cross', fromLeft ? 0 : COLS - 1, fromLeft ? 1 : -1, 'l1cross');
-      l1.crossSpawned = true;
-    }
-  }
-  if (l1.diveState === 'pending' && l1.crossGoneTick !== null && t >= l1.crossGoneTick + 1) {
-    const h = g.player.lastHitTick;
-    const inLock = h !== null && t <= h + Tunables.impactLockMs / S;
-    if (g.lives > 0 && !inLock) {
-      spawnJet(g, 'dive', g.player.col, 0, 'l1dive');
-      l1.diveState = 'active';
-    }
+  if (p.body === 'chopper') {
+    if (p.onGround) p.fuel = Math.min(Chopper.fuelTicks, p.fuel + Chopper.refillTicksPerTick);
+    updateHook(g);
   }
 }
 
-// ---- Step 4: respawn -------------------------------------------------------------------------
+function carriedBox(p: Player, item: Item): Box {
+  return { x: cx(p) - item.w / 2, y: p.y + p.h + Chopper.hangGap, w: item.w, h: item.h };
+}
 
-function step4Respawn(g: Game): void {
+function movePlayer(g: Game): void {
   const p = g.player;
-  if (!p.respawnDue) return;
-  p.respawnDue = false;
-  p.col = respawnColumn(g);
-  p.row = LANE_ROW;
-  p.mode = 'tank';
-  p.wreck = null;
+  const room = g.room;
+  const item = p.carrying;
+  const extras = solidCrates(room, item);
+  const wasOnGround = p.onGround;
+  const fallSpeed = p.vy;
+
+  // Horizontal, then vertical. A carried item moves with the chopper and blocks it like part of its body.
+  // Gusts push the chopper (not the heavy tank) on top of its own speed.
+  const want = (p.vx + (p.body === 'chopper' ? windAt(room) : 0)) * DT;
+  let dx = sweep(room, p, want, 0, extras);
+  if (item) {
+    const ib = carriedBox(p, item);
+    const ix = sweep(room, ib, dx, 0, extras);
+    if (Math.abs(ix) < Math.abs(dx)) dx = ix;
+  }
+  if (dx !== want) p.vx = 0;
+  p.x += dx;
+
+  let dy = p.vy * DT;
+  dy = sweep(room, p, 0, dy, extras);
+  if (item) {
+    const ib = carriedBox(p, item);
+    const iy = sweep(room, ib, 0, dy, extras);
+    if (Math.abs(iy) < Math.abs(dy)) dy = iy;
+  }
+  const blocked = dy !== p.vy * DT;
+  p.onGround = blocked && p.vy > 0;
+  if (blocked) p.vy = 0;
+  p.y += dy;
+  if (p.y < 0) {
+    p.y = 0;
+    if (p.vy < 0) p.vy = 0;
+  }
+  if (item) {
+    const ib = carriedBox(p, item);
+    item.x = ib.x;
+    item.y = ib.y;
+  }
+
+  if (!wasOnGround && p.onGround && fallSpeed > 60) {
+    p.landSpeed = fallSpeed;
+    emit(g, 'land', cx(p), p.y + p.h, { n: Math.round(fallSpeed) });
+  }
+
+  // Exits and edges.
+  if (cx(p) > ROOM_PX_W) {
+    enterRoom(g, room.index + 1);
+    return;
+  }
+  if (p.y > ROOM_PX_H) die(g, 'fall');
 }
 
-// ---- Step 5: collisions and hits -------------------------------------------------------------
-
-const sameCell = (a: { col: number; row: number }, c: number, r: number) => a.col === c && a.row === r;
-
-function step5Hits(g: Game): void {
+function updateHook(g: Game): void {
   const p = g.player;
+  const items = g.room.items;
+  // HW-001 — found by Debu in the feel check: the hook needed a 0.2 s hover within 10 px of the
+  // boat, which was very hard to hold. Root cause: the hover rule existed only so that landing on
+  // a crate wouldn't pick it up. Fix: the hook is automatic: fly within reach (about 2 tiles down,
+  // a tile either side) and it takes the nearest item at once. The crate you just set down is the
+  // one exception until you fly away from it, which keeps "set a crate down, land on it, refuel".
+  if (p.lastDropped !== null) {
+    const it = items.find((i) => i.id === p.lastDropped);
+    if (!it || it.carried || it.rescued || Math.abs(cx(it) - cx(p)) > Pickup.rearmDistance) p.lastDropped = null;
+  }
+  if (p.carrying || p.onGround || p.foldTicks > 0) return;
+  const bottom = p.y + p.h;
+  let best: Item | null = null;
+  for (const i of items) {
+    if (i.carried || i.rescued || i.hidden || i.id === p.lastDropped) continue;
+    const gap = i.y - bottom;
+    if (Math.abs(cx(i) - cx(p)) > Pickup.reachX || gap < -4 || gap > Pickup.reachDown) continue;
+    if (!best || gap < best.y - bottom) best = i;
+  }
+  if (!best || tileBoxSolid(g.room, carriedBox(p, best))) return;
+  best.carried = true;
+  best.floating = false;
+  best.onGround = false;
+  best.vx = 0;
+  best.vy = 0;
+  p.carrying = best;
+  const placed = carriedBox(p, best);
+  best.x = placed.x;
+  best.y = placed.y;
+  emit(g, 'hook', cx(best), best.y);
+}
 
-  // (i) shell vs jet: same cell after step 3, or swapped cells in step 3. Earliest-spawned jet wins.
-  if (g.shell) {
-    const s = g.shell;
-    const hit = g.jets
-      .filter((j) => sameCell(j, s.col, s.row)
-        || (j.prevRow !== null && j.prevCol === s.col && j.prevRow === s.row && j.col === s.col && j.row === s.prevRow))
-      .sort((a, b) => a.id - b.id)[0];
-    if (hit) {
+function tileBoxSolid(room: RoomState, b: Box): boolean {
+  const c0 = Math.floor(b.x / TILE);
+  const c1 = Math.floor((b.x + b.w - 0.001) / TILE);
+  const r0 = Math.floor(b.y / TILE);
+  const r1 = Math.floor((b.y + b.h - 0.001) / TILE);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (isSolidTile(room, c, r)) return true;
+  return false;
+}
+
+function release(g: Game, item: Item): void {
+  const p = g.player;
+  item.carried = false;
+  item.vx = p.vx * 0.5;
+  item.vy = Math.max(0, p.vy);
+  p.carrying = null;
+  p.lastDropped = item.id;
+  emit(g, 'setDown', cx(item), item.y + item.h);
+}
+
+// ---------------------------------------------------------------- shell and charge
+
+function updateProjectiles(g: Game): void {
+  const room = g.room;
+  const s = g.shell;
+  if (s) {
+    s.y += s.vy * DT;
+    const t = room.targets.find((t) => !t.hit && overlaps(s, { x: t.col * TILE + 2, y: t.row * TILE + 2, w: 12, h: 12 }));
+    const jet = room.jets.find((j) => j.alive && j.phase !== 'wait' && j.phase !== 'warn' && overlaps(s, j));
+    if (jet) {
+      jet.alive = false;
+      jet.respawn = room.def.jetRespawnTicks ?? 0;
       g.shell = null;
-      g.fx.push({ kind: 'shellHit', col: hit.col, row: hit.row, tick: g.tick });
-      removeJet(g, hit);
-      addScore(g, 100);
-      raise(g.messages, '+100', g.tick);
-      g.events.push('jetKill');
+      const pts = jet.scored ? 0 : Points.jet;
+      jet.scored = true;
+      g.roomPoints += pts;
+      emit(g, 'jetDown', cx(jet), cy(jet), { n: pts });
+      openGateIfDone(g);
+    } else if (t) {
+      t.hit = true;
+      g.shell = null;
+      emit(g, 'targetHit', t.col * TILE + 8, t.row * TILE + 8);
+      if (room.targets.every((x) => x.hit) && !room.bridgesDown) {
+        room.bridgesDown = true;
+        const b = bridgeCentre(room);
+        emit(g, 'bridgeDown', b.x, b.y);
+      }
+    } else if (isSolidTile(room, Math.floor(cx(s) / TILE), Math.floor(s.y / TILE)) && s.y < ROOM_PX_H) {
+      emit(g, 'shellPoof', cx(s), s.y);
+      g.shell = null;
+    } else if (s.y + s.h < -TILE) {
+      g.shell = null;
     }
   }
 
-  // (ii) tank hits: one per tick, priority mine, then bomb, then jet.
-  if (!isChopper(g) && p.invulnLeft <= 0) {
-    const swapped = (m: { col: number; row: number; prevCol: number | null; prevRow: number | null }) =>
-      m.prevRow !== null && m.prevCol === g.tankAfter2.col && m.prevRow === g.tankAfter2.row
-      && m.col === g.tankStart.col && m.row === g.tankStart.row;
-    const touches = (m: Jet | Bomb) => sameCell(m, p.col, p.row) || swapped(m);
-    const mineHit = g.mine !== null && p.row === LANE_ROW && g.mine.col === p.col;
-    const bomb = g.bombs.filter((b) => !b.river && touches(b)).sort((a, b) => a.id - b.id)[0];
-    const jet = g.jets.filter((j) => j.path === 'dive' && touches(j)).sort((a, b) => a.id - b.id)[0];
-    if (mineHit) {
-      endCrisis(g);
-      tankHit(g, 'mine');
-    } else if (bomb) {
-      g.bombs = g.bombs.filter((b) => b !== bomb);
-      tankHit(g, 'bomb');
-    } else if (jet) {
-      removeJet(g, jet);
-      tankHit(g, 'jet');
-    }
-  }
-
-  // (iii) jump clear
-  if (p.mode === 'jump' && g.mine && g.mine.col === p.col) {
-    endCrisis(g);
-    addScore(g, 200);
-    raise(g.messages, '+200', g.tick);
-    g.events.push('mineClear');
-  }
-
-  // (iv) bomb sink
-  if (g.boat && !g.boat.hooked) {
-    const boat = g.boat;
-    const sinker = g.bombs.find((b) => b.river && b.col === boat.col && b.row === boat.row);
-    if (sinker) {
-      g.bombs = g.bombs.filter((b) => b !== sinker);
-      loseBoat(g, 'sink');
+  const c = g.charge;
+  if (c) {
+    c.vy = Math.min(Charge.maxFall, c.vy + Charge.gravity * DT);
+    c.y += c.vy * DT;
+    c.x += windAt(room) * Wind.chargeFactor * DT;
+    const x = cx(c);
+    const bottom = c.y + c.h;
+    const surface = waterSurface(room, x, bottom);
+    const hitTile = isSolidTile(room, Math.floor(x / TILE), Math.floor(bottom / TILE));
+    const hitCactus = room.cacti.some((k) => k.grown && overlaps(c, cactusBox(k)));
+    const hitMine = room.mines.some((m) => m.alive && overlaps(c, m));
+    const hitCrate = room.items.some((i) => !i.carried && !i.rescued && overlaps(c, i));
+    if (surface !== null) {
+      emit(g, 'splash', x, surface);
+      blast(g, x, surface);
+    } else if (hitTile || hitCactus || hitMine || hitCrate) {
+      blast(g, x, Math.min(bottom, Math.floor(bottom / TILE) * TILE));
+    } else if (c.y > ROOM_PX_H) {
+      g.charge = null;
     }
   }
 }
 
-function tankHit(g: Game, kind: 'mine' | 'bomb' | 'jet'): void {
+function bridgeCentre(room: RoomState): { x: number; y: number } {
+  let sx = 0;
+  let sy = 0;
+  let n = 0;
+  room.tiles.forEach((r, row) => r.forEach((ch, col) => {
+    if (ch === '=') { sx += col * TILE + 8; sy += row * TILE + 8; n++; }
+  }));
+  return n ? { x: sx / n, y: sy / n } : { x: 0, y: 0 };
+}
+
+export function cactusBox(k: CactusState): Box {
+  const i = Cactus.inset;
+  return { x: k.col * TILE + i, y: k.row * TILE + i, w: TILE - 2 * i, h: TILE - i };
+}
+
+function blast(g: Game, x: number, y: number): void {
+  const room = g.room;
+  g.charge = null;
+  emit(g, 'blast', x, y);
+  const r = Charge.blastRadius;
+  const near = (bx: number, by: number, extra: number) => Math.hypot(bx - x, by - y) <= r + extra;
+  for (const k of room.cacti) {
+    if (k.grown && near(k.col * TILE + 8, k.row * TILE + 10, 8)) {
+      k.grown = false;
+      k.timer = Cactus.regrowTicks;
+      emit(g, 'cactusGone', k.col * TILE + 8, k.row * TILE + 8);
+    }
+  }
+  for (let row = 0; row < ROOM_H; row++) for (let col = 0; col < ROOM_W; col++) {
+    if (room.tiles[row][col] === 'x' && near(col * TILE + 8, row * TILE + 8, 8)) {
+      room.tiles[row][col] = '.';
+      emit(g, 'floorBreak', col * TILE + 8, row * TILE + 8);
+    }
+  }
+  for (const m of room.mines) {
+    if (m.alive && near(cx(m), cy(m), 6)) {
+      m.alive = false;
+      g.roomPoints += Points.mine;
+      emit(g, 'mineClear', cx(m), cy(m), { n: Points.mine });
+    }
+  }
+}
+
+// ---------------------------------------------------------------- jets and bombs
+
+/** Top of the first solid tile or water surface at or below y in column x (px), or the room bottom. */
+function groundBelow(room: RoomState, x: number, y: number): number {
+  const col = Math.floor(x / TILE);
+  for (let row = Math.max(0, Math.floor(y / TILE)); row < ROOM_H; row++) {
+    if (isSolidTile(room, col, row) || tileAt(room, col, row) === '~') return row * TILE;
+  }
+  return ROOM_PX_H;
+}
+
+function updateJets(g: Game): void {
+  const room = g.room;
   const p = g.player;
-  const absorbed = lastLifeNetOn(g);
-  if (!absorbed) g.lives -= 1;
-  if (p.mode === 'jump') {
-    p.mode = 'tank'; // the hit ends the jump: no landing, no cooldown; the wreck stays on row 8
-    p.airLeft = 0;
-  }
-  p.invulnLeft = Tunables.invulnMs;
-  p.lockLeft = Tunables.impactLockMs;
-  p.wreck = kind;
-  p.lastHitTick = g.tick;
-  g.hz.resetPending = true;
-  g.fx.push({ kind: kind === 'bomb' ? 'bombHitTank' : 'jetHitTank', col: p.col, row: p.row, tick: g.tick });
-  raise(g.messages, absorbed ? 'LAST LIFE SAFE' : 'LIFE LOST', g.tick);
-  g.events.push('tankHit');
-}
-
-// ---- Step 6: crisis spawns -------------------------------------------------------------------
-
-function step6Spawns(g: Game): void {
-  const l1 = g.level1;
-  if (l1.active) {
-    const jetsGone = l1.crossGoneTick !== null && l1.diveState === 'gone';
-    if (l1.boatConditionTick === null && jetsGone && columnBombFree(g, Tunables.tutorialBoatCol)) {
-      l1.boatConditionTick = g.tick;
-      l1.boatDueTick = g.tick + Tunables.tutorialBeatMs / S;
+  const alive = p.deadTicks === 0;
+  for (const j of room.jets) {
+    if (!j.alive) {
+      // In a room that needs a jet's bomb, a shot jet comes back (and pays nothing the second time).
+      if (j.respawn > 0 && --j.respawn === 0) {
+        j.alive = true;
+        j.phase = 'wait';
+        j.timer = j.kind === 'cross' ? 1 : Jet.diveGapTicks;
+        if (j.kind === 'dive') j.y = -j.h - 40;
+      }
+      continue;
     }
-    if (l1.boatDueTick === g.tick && g.crisis === 'None') {
-      startBoatCrisis(g, Tunables.tutorialBoatCol, Tunables.tutorialBoatRow, true);
-      l1.boatEverSpawned = true;
-      l1.boatDueTick = null;
+    if (j.kind === 'cross') {
+      if (j.phase === 'wait') {
+        if (--j.timer <= 0) { j.phase = 'fly'; parkJet(j); }
+        continue;
+      }
+      j.x += j.dir * (j.harmless ? Jet.harmlessSpeed : Jet.crossSpeed) * DT;
+      if (j.bombCd > 0) j.bombCd--;
+      const onScreen = j.x > 0 && j.x + j.w < ROOM_PX_W;
+      if (!j.harmless && alive && onScreen && j.bombCd === 0 && p.y > j.y + j.h && Math.abs(cx(j) - cx(p)) < Jet.dropWindow) {
+        room.bombs.push({ x: cx(j) - Bomb.w / 2, y: j.y + j.h, w: Bomb.w, h: Bomb.h, vy: 0 });
+        j.bombCd = Jet.bombCooldownTicks;
+        emit(g, 'bombDrop', cx(j), j.y + j.h);
+      }
+      if ((j.dir === 1 && j.x > ROOM_PX_W + 4) || (j.dir === -1 && j.x + j.w < -4)) {
+        j.phase = 'wait';
+        j.timer = Jet.passGapTicks;
+      }
+    } else if (j.phase === 'wait') {
+      if (--j.timer > 0 || !alive) continue;
+      // Lock onto the column you're in, and warn.
+      j.phase = 'warn';
+      j.timer = Jet.warnTicks;
+      j.aimX = Math.max(Jet.w / 2, Math.min(ROOM_PX_W - Jet.w / 2, cx(p)));
+      j.x = j.aimX - j.w / 2;
+      j.y = -j.h - 2;
+      j.pullY = groundBelow(room, j.aimX, 0) - Jet.skim;
+      j.dir = j.aimX < ROOM_PX_W / 2 ? 1 : -1; // it climbs away towards the far side
+      emit(g, 'diveWarn', j.aimX, 0);
+    } else if (j.phase === 'warn') {
+      if (--j.timer <= 0) { j.phase = 'dive'; emit(g, 'dive', j.aimX, 0); }
+    } else if (j.phase === 'dive') {
+      j.y += Jet.diveSpeed * DT;
+      if (j.y + j.h >= j.pullY) {
+        j.y = j.pullY - j.h;
+        j.phase = 'climb';
+      }
+    } else {
+      j.x += j.dir * Jet.climbSpeed * DT;
+      j.y -= Jet.climbSpeed * 0.6 * DT;
+      if (j.y + j.h < -4 || j.x > ROOM_PX_W + 4 || j.x + j.w < -4) {
+        j.phase = 'wait';
+        j.timer = Jet.diveGapTicks;
+        j.y = -j.h - 40;
+      }
     }
-    return;
   }
+}
 
-  if (g.pendingBoat) {
-    if (trySpawnBoat(g)) {
-      g.pendingBoat = false;
-      g.schedElapsed = 0;
+function updateBombs(g: Game): void {
+  const room = g.room;
+  const p = g.player;
+  for (const b of [...room.bombs]) {
+    b.vy = Math.min(Bomb.maxFall, b.vy + Bomb.gravity * DT);
+    b.y += b.vy * DT;
+    const x = cx(b);
+    const bottom = b.y + b.h;
+    const gone = () => room.bombs.splice(room.bombs.indexOf(b), 1);
+    if (p.deadTicks === 0 && overlaps(b, p)) {
+      gone();
+      emit(g, 'bombBlast', x, bottom);
+      die(g, 'bomb');
+      return;
     }
-    return;
+    const boat = room.items.find((i) => i.kind === 'boat' && !i.hidden && !i.rescued && overlaps(b, i));
+    if (boat) {
+      gone();
+      emit(g, 'bombBlast', x, bottom);
+      emit(g, 'boatLost', cx(boat), cy(boat));
+      die(g, 'boat');
+      return;
+    }
+    const surface = waterSurface(room, x, bottom);
+    if (surface !== null) {
+      gone();
+      emit(g, 'splash', x, surface);
+      continue;
+    }
+    const crate = room.items.some((i) => i.kind === 'crate' && !i.rescued && overlaps(b, i));
+    if (isSolidTile(room, Math.floor(x / TILE), Math.floor(bottom / TILE)) || crate) {
+      gone();
+      const y = crate ? bottom : Math.floor(bottom / TILE) * TILE;
+      emit(g, 'bombBlast', x, y);
+      // A bomb breaks cracked floor where it lands: lure one onto a crack to open the way down.
+      for (let row = 0; row < ROOM_H; row++) for (let col = 0; col < ROOM_W; col++) {
+        if (room.tiles[row][col] === 'x' && Math.hypot(col * TILE + 8 - x, row * TILE + 8 - y) <= Bomb.blastRadius) {
+          room.tiles[row][col] = '.';
+          emit(g, 'floorBreak', col * TILE + 8, row * TILE + 8);
+        }
+      }
+      if (p.deadTicks === 0 && Math.hypot(cx(p) - x, cy(p) - y) <= Bomb.killRadius) die(g, 'bomb');
+      continue;
+    }
+    if (b.y > ROOM_PX_H) gone();
   }
-  if (!g.schedDue || g.crisis !== 'None') return;
-  g.schedDue = false;
-  g.schedElapsed = 0;
-  let pick: 'Boat' | 'Mine' | null = null;
-  if (g.boatsUnlocked && g.minesUnlocked) {
-    pick = g.forceMineNext ? 'Mine' : g.lastPick === 'Mine' ? 'Boat' : 'Mine';
-  } else if (g.boatsUnlocked) {
-    pick = 'Boat';
-  } else if (g.minesUnlocked) {
-    pick = 'Mine';
-  }
-  if (pick === null) return;
-  if (pick === 'Mine') g.forceMineNext = false;
-  g.lastPick = pick;
-  if (pick === 'Mine') spawnMine(g);
-  else if (!trySpawnBoat(g)) g.pendingBoat = true;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Panels (read-only views; never change game state)
+// ---------------------------------------------------------------- crates and boats
 
-/** Side-panel pinned lines: crisis label, then the tutorial step prompt (§3, L1 Side message panel). */
-export function pinnedLines(g: Game): string[] {
-  const l1 = g.level1;
-  const lines: string[] = [];
-  if (!l1.active) return lines;
-  const boat = g.boat;
-  if (boat?.tutorial) lines.push('TUTORIAL BOAT');
-  if (!l1.boatEverSpawned) {
-    if (!l1.fired) lines.push(l1.moved ? 'SPACE: FIRE' : 'MOVE ◀ ▶');
-  } else if (boat?.tutorial) {
-    const p = g.player;
-    if (p.mode === 'chopperHooked') lines.push('FLY TO A BANK');
-    else if (p.mode === 'chopperFree') lines.push(p.col === boat.col ? 'PRESS DOWN: HOOK' : 'FLY TO THE BOAT');
-    else lines.push('PRESS DOWN: CHOPPER');
+function updateItems(g: Game): void {
+  const room = g.room;
+  for (const it of room.items) {
+    if (it.carried || it.rescued) continue;
+    it.vy = Math.min(Charge.maxFall, it.vy + Charge.gravity * DT);
+    it.vx = approach(it.vx, 0, 300 * DT);
+    // A falling crate or boat lands on the player instead of swallowing them.
+    const extras: Box[] = solidCrates(room, it);
+    if (g.player.deadTicks === 0) extras.push(g.player);
+    const dx = sweep(room, it, it.vx * DT, 0, extras);
+    if (dx !== it.vx * DT) it.vx = 0;
+    it.x += dx;
+    const dy = sweep(room, it, 0, it.vy * DT, extras);
+    const blocked = dy !== it.vy * DT;
+    it.onGround = blocked && it.vy > 0;
+    if (blocked) it.vy = 0;
+    it.y += dy;
+    // Crates and boats float: they rest a few pixels into the water surface.
+    const surface = waterSurface(room, cx(it), it.y + it.h);
+    if (surface !== null) {
+      if (!it.floating) emit(g, 'splash', cx(it), surface);
+      it.floating = true;
+      it.y = surface - it.h + 4;
+      it.vy = 0;
+    } else {
+      it.floating = false;
+    }
+    if (it.y > ROOM_PX_H) it.rescued = true; // fell out of the world; gone for this attempt
+
+    if (it.hidden) {
+      // A hidden boat is found by touching it (in either body).
+      if (g.player.deadTicks === 0 && overlaps(g.player, it)) {
+        it.rescued = true;
+        room.hiddenHome++;
+        g.roomPoints += Points.boat;
+        emit(g, 'rescue', cx(it), cy(it), { n: Points.boat, hidden: true });
+      }
+      continue;
+    }
+    if (it.kind === 'boat') {
+      if (it.floating) {
+        it.drownLeft--;
+        if (it.drownLeft <= 0) {
+          emit(g, 'boatLost', cx(it), cy(it));
+          die(g, 'boat');
+          return;
+        }
+      }
+      const under = tileAt(room, Math.floor(cx(it) / TILE), Math.floor((it.y + it.h + 1) / TILE));
+      if (it.onGround && under === 'H') {
+        it.rescued = true;
+        room.boatsHome++;
+        g.roomPoints += Points.boat;
+        emit(g, 'rescue', cx(it), cy(it), { n: Points.boat });
+        openGateIfDone(g);
+      }
+    }
   }
-  return lines;
 }
 
-/** Top panel TUTORIAL field: two fixed slots (L1 Top status panel). */
-export function tutorialSlots(g: Game): [string, string] {
-  const l1 = g.level1;
-  return [
-    l1.active && l1.boatEverSpawned ? 'SAFE BOAT' : '',
-    lastLifeNetOn(g) ? 'LAST LIFE SAFE' : '',
-  ];
-}
+// ---------------------------------------------------------------- hazards
 
-/** FUEL meter: 8 segments of 1,240 ms, rounded up; null when blank (§3 Top status panel). */
-export function fuelSegments(g: Game): number | null {
-  if (g.crisis !== 'Boat' || g.flightBudget === null) return null;
-  return Math.max(0, Math.ceil(g.flightBudget / (Tunables.flightBudgetMs / 8)));
+function updateHazards(g: Game): void {
+  const room = g.room;
+  const p = g.player;
+
+  for (const k of room.cacti) {
+    if (k.grown) {
+      k.age++;
+      continue;
+    }
+    if (k.timer > 0) k.timer--;
+    // A cactus regrows only when the spot is clear, so it never grows into the player.
+    if (k.timer === 0 && !overlaps(p, cactusBox(k))) {
+      k.grown = true;
+      k.age = 0;
+      emit(g, 'cactusSprout', k.col * TILE + 8, k.row * TILE + 12);
+    }
+  }
+
+  for (const m of room.mines) {
+    if (!m.alive) continue;
+    m.x += m.vx * DT;
+    if (m.x <= m.minX) { m.x = m.minX; m.vx = Math.abs(m.vx); }
+    if (m.x >= m.maxX) { m.x = m.maxX; m.vx = -Math.abs(m.vx); }
+    for (const it of room.items) {
+      if (it.carried || it.rescued || !overlaps(m, it)) continue;
+      if (it.kind === 'boat') {
+        emit(g, 'boatLost', cx(it), cy(it));
+        die(g, 'boat');
+        return;
+      }
+      m.vx = cx(m) < cx(it) ? -Math.abs(m.vx) : Math.abs(m.vx); // a crate turns a mine around
+    }
+  }
+
+  if (p.deadTicks > 0) return;
+  const hit = { x: p.x + 1, y: p.y + 1, w: p.w - 2, h: p.h - 1 };
+  if (room.cacti.some((k) => k.grown && overlaps(hit, cactusBox(k)))) return die(g, 'cactus');
+  if (room.mines.some((m) => m.alive && overlaps(hit, m))) return die(g, 'mine');
+  if (room.jets.some((j) => j.alive && !j.harmless && (j.phase === 'fly' || j.phase === 'dive' || j.phase === 'climb') && overlaps(hit, j))) return die(g, 'jet');
+  if (isWaterAt(room, cx(p), p.y + p.h - 3)) return die(g, 'water');
 }
