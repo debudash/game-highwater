@@ -1,0 +1,66 @@
+{
+  "_comment": "Every game image, built from art/source/ by tools/build_art.py. Sprites are cleaned to true pixel art; backgrounds are only resized. A patch fills a box of art pixels [x0, y0, x1, y1] (inclusive) with the colour at [sx, sy], to paint out a generator glitch. A sheet is cleaned once, then cut apart along its transparent gaps into the named tiles, left to right and top to bottom.",
+  "sprites": {
+    "tank": {},
+    "chopper": {},
+    "boat": {
+      "patches": [
+        {
+          "box": [
+            15,
+            74,
+            23,
+            81
+          ],
+          "from": [
+            12,
+            74
+          ],
+          "why": "glitch mark on the rudder"
+        }
+      ]
+    },
+    "crate": {},
+    "cactus": {},
+    "mine": {},
+    "target": {},
+    "gate": {},
+    "bridge": {},
+    "jet": {},
+    "bomb": {},
+    "bomber": {},
+    "logo": {}
+  },
+  "backgrounds": {
+    "bg-riverside": {
+      "width": 1920
+    },
+    "bg-jetalley": {
+      "width": 1920
+    },
+    "bg-floodplain": {
+      "width": 1920
+    },
+    "bg-minefield": {
+      "width": 1920
+    },
+    "bg-storm": {
+      "width": 1920
+    },
+    "bg-dawn": {
+      "width": 1920
+    }
+  },
+  "sheets": {
+    "tiles": {
+      "names": [
+        "tile-grass",
+        "tile-soil",
+        "tile-stone",
+        "tile-cracked",
+        "tile-dock",
+        "tile-bridge"
+      ]
+    }
+  }
+}

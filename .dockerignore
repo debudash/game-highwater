@@ -1,3 +1,7 @@
 node_modules
 dist
 .git
+art
+e2e-shots
+.env
+.env.*
