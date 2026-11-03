@@ -62,8 +62,8 @@ choosing the right one and, by the end, switching between them mid-jump.
 |---|---|---|
 | Moves | Drives and jumps | Flies. Fuel lasts about 3 s of thrust and refills only on landing |
 | Action (X) | Fires one shell **straight up**, for jets and targets overhead | Drops one charge **straight down**, for things below |
-| Carrying | Can't carry | Picks up one boat or crate by **touching** it. While carrying, X **sets it down** instead of dropping a charge, so it can't defend what it carries |
-| Weakness | Water is fatal | The charge can't hit jets, and gusts push it |
+| Carrying | Can't carry | The hook is **automatic**: fly low over a boat or crate (within about 2 tiles) and it's reeled up at once. The crate you just set down is ignored until you fly away from it, so you can land on it to refuel. While carrying, X **sets it down** instead of dropping a charge, so it can't defend what it carries |
+| Weakness | Water is fatal | Water is fatal too (it flies over it, never in it); the charge can't hit jets, and gusts push it |
 
 - **Switching:** C or Shift switches body at any time, including in mid-air. It unlocks in stage 3.
 - **The rule of thumb:** a threat above means the tank, and a threat below means the chopper.
@@ -90,7 +90,7 @@ choosing the right one and, by the end, switching between them mid-jump.
 ## Controls (shown on the landing page and pause screen; keyboard only; every key can be rebound)
 
 **Customising keys:**
-- Every action can be rebound in Settings, with up to two keys per action.
+- Every action can be rebound in Settings, with up to three keys per action.
 - Bindings are saved in the browser.
 - Settings also has "Reset to defaults".
 - **Conflicts:** binding a key that's already in use swaps the two actions.
@@ -167,7 +167,7 @@ Each new idea first appears in a room where you can't die, then in a room that t
 
 | # | Stage | Light and tone | New idea | How it builds | Rooms |
 |---|---|---|---|---|---|
-| 1 | **Riverside Road** | Morning, playful | Drive, jump, fire up | Gaps and cacti, then shoot targets to lower drawbridges, then a jump-and-fire to hit a high target before landing | 4 |
+| 1 | **Riverside Road** | Morning, playful | Drive, jump, fire up | Gaps and cacti, then shoot targets to lower drawbridges, then a jump-and-fire to hit a high target before landing. The last room shows one slow, harmless jet overhead, a first taste you can shoot for points | 4 |
 | 2 | **Jet Alley** | Noon, playful | Jets and bombs | Cross jets drop straight bombs with ground shadows, then dive jets come at you, then you lure bombs onto cracked floors to open the way | 4 |
 | 3 | **Floodplain** | Afternoon, the flood turns serious | Switch, fly, fuel, carry | Water kills the tank. Fly across, land to refuel, drop crates as landing islands, carry 2 boats to the bank | 4 |
 | 4 | **Minefield** | Dusk | The chopper's charge | Blast cacti and land before they regrow, break floors from above, clear mines drifting towards a boat | 4 |
@@ -216,7 +216,7 @@ war game.
 ## Retry and help
 
 - **Death:**
-  - What kills you: a cactus, a bomb, a dive jet, water (for the tank) or falling off the bottom.
+  - What kills you: a cactus, a bomb, a dive jet, a mine, water or falling off the bottom.
   - The vehicle bursts like a toy, and you respawn at the room entrance about 0.4 s later. There
     are no lives.
 - **Room reset:** the room resets fully (jets, crates, boats and charges). Deaths are counted and
@@ -230,7 +230,23 @@ war game.
 - **The Bomber:** each phase is its own checkpoint.
 - **Death counts:** the game logs deaths per room, so the playtests show which rooms are hardest.
 
-## Look: 2.5D toy diorama
+## Look: generated 2D pixel art (look B)
+
+**Debu chose look B on 2026-11-03** (decision 25), after comparing it with the 3D diorama and a
+pixel-rendered 3D prototype. This section supersedes the 3D notes kept below for the record.
+- **The reference:** quizcaster.com: detailed, shaded 2D pixel art with dark outlines and a soft
+  highlight.
+- **How it's made:** Debu generates every image in Gemini (Nano Banana Pro) from the prompts in
+  [ART_PROMPTS.md](ART_PROMPTS.md). One fixed style block, with the tank attached as the style
+  reference, keeps the set matching. `tools/build_art.py` cleans each image into true pixel art,
+  snapping it to its art-pixel grid and palette, and writes `public/art/`.
+- **The view:** a 2D Canvas view (`src/view2d/`) over the same sim. One tile is 96 art pixels, and
+  the art is drawn at full detail with smooth scaling. Water, the shell and the charge are drawn in
+  code in the same style.
+- **The 3D view** stays reachable at `?look=3d` for comparison only.
+
+### The earlier 3D direction (superseded)
+
 
 **Art direction (Debu, 2026-11-03):**
 - **Shading:** flat-shaded low-poly, where every face is one colour lit by the sun.
@@ -361,6 +377,7 @@ war game.
 - No wall-jump, dash or side-firing. The shell only goes up and the charge only goes down; that is
   the design.
 - No touch controls, and no gamepad unless there's time.
+- No multiplayer (Debu, 2026-11-03): solo play is what the brief grades and what judges will see.
 - No free 3D movement or camera. The play is a 2D plane.
 - No level editor; rooms are plain text maps in code.
 
@@ -408,11 +425,11 @@ Checked against [ASSIGNMENT.md](ASSIGNMENT.md), the brief that is the requiremen
 | Beginning, middle, end | Landing page with the intro; five stages; finale, ending and results |
 | Clear objective | The landing-page intro says the goal; the HUD shows the boats needed; gates show when they're open |
 | 10–15 minutes | 23 rooms at roughly 30 s each, plus story and ending |
-| Polished, cohesive look | One palette, one model style, one camera, the stage lighting arc |
+| Polished, cohesive look | One style block and one reference image for every generated image, one art-pixel grid, one outline style, the stage lighting arc in the backgrounds |
 | Unique, clean design | An up-firing toy tank that folds into a down-firing chopper, in River Guard's world, as a lit diorama |
 | Look, sound and feel reinforce the world | The tone arc runs through the lighting, music and weather together |
 | Finish the details | One font, a fixed HUD layout, animation on every action, a mixed sound level, feedback on every hit and pickup |
-| All assets generated | Models, materials, font, music and sound are all generated in code; the README says how |
+| All assets generated | Every image generated in Gemini from the prompts in ART_PROMPTS.md and cleaned by script; font, music and sound generated in code; the README says how |
 | Playable by someone else | An intro and controls on the landing page, rebindable keys, controls on the pause screen, safe teaching rooms, key prompts, a stranger playtest |
 | Browser link | GitHub Pages, published from `release` |
 
@@ -446,3 +463,10 @@ All settled by Debu on 2026-11-03.
 | 19 | **Framing:** a cutaway front showing soil, rock and water in section, with a continuous landscape behind |
 | 20 | **Material:** painted wooden toys for everything |
 | 21 | **Remaining details:** Debu said "go with your defaults". The palette, stage lighting, camera, water, effects, HUD, landing-page layout, style frame, default keys, story text drafted by Claude for Debu to approve on screen, 5×7 font (voxel titles, flat HUD) and repo housekeeping are as written in this doc |
+| 22 | **Multiplayer:** dropped |
+| 23 | **Feel build refinements (Claude, for the feel check):** water is fatal to both bodies; up to three keys per action |
+| 24 | **Auto-hook (Debu, feel check, HW-001):** hovering to hook was too hard. The hook is automatic within reach; only the crate you just set down is skipped until you fly away |
+| 25 | **Look B (Debu, look check, 2026-11-03):** generated 2D pixel art in the style of quizcaster.com, made in Gemini from `docs/ART_PROMPTS.md` and cleaned by `tools/build_art.py`, drawn by a 2D view. It replaces the 3D diorama (decisions 4 and 18–20); the 3D view stays at `?look=3d` for comparison |
+| 26 | **Sound (Debu):** effects are modelled on the real thing (cannon crack and boom, rotor chop, splashes, chains, bells, a boat horn), not chiptune, then made "vibrant and energetic": punchy transients, a drive-and-compress master and bright bell flourishes on rewards |
+| 27 | **Gates are doors (Claude, for look B):** a gate is two tiles tall at ground level with a castle wall (`W`) above it to the top of the room, so the generated gate tower fits |
+| 28 | **A teaser jet in stage 1 (Debu):** Riverside Road's last room has one slow jet that drops no bombs and can't hurt you. Shooting it is optional and scores +100; jets turn dangerous in Jet Alley |

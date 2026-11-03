@@ -6,22 +6,36 @@ github.com/debudash/game-rivergauard, spelled that way; git remote `riverguard`)
 single-lane arcade game becomes a platformer with River Guard's own hero: a tank that fires
 straight up and folds into a chopper.
 
-## Status (2026-11-03)
+## Status (2026-11-03, evening)
 
-- `docs/GAME_DESIGN.md` holds every design decision, settled by Debu in a grilling session on
-  2026-11-03; its decision log lists them. It is the source of truth for the design; the brief
-  (`docs/ASSIGNMENT.md`) wins over it.
+- `docs/GAME_DESIGN.md` holds every design decision; its decision log (rows 1–28) lists them. It is
+  the source of truth for the design; the brief (`docs/ASSIGNMENT.md`) wins over it.
 - The headlines:
-  - A 2.5D toy diorama: Three.js renders models built in code, over a 2D sim.
+  - **Look B** (decision 25): generated 2D pixel art in the style of quizcaster.com, drawn by the
+    2D Canvas view in `src/view2d/`. The old 3D diorama is at `?look=3d`, for comparison only.
   - Five stages plus the Bomber finale, 23 single-screen rooms.
   - The tank fires up and the chopper drops a charge down, both on X; C switches body.
+- **Art:** every image is generated in Gemini (Nano Banana Pro) from `docs/ART_PROMPTS.md`, with
+  the tank as the style reference. `python tools/gen_art.py <name>` generates through the API (key
+  in `.env`, never committed or put in the image); `python tools/build_art.py` cleans
+  `art/source/` into `public/art/`. Don't hand-edit `public/art/`.
+- **Built and committed** (`1423850`): stages 1–5 (20 rooms, each cleared by a bot in
+  `tests/stagebots.ts`), jets, bombs, wind, hidden boats, ghost hint, skip, end of run; landing
+  page, Settings with key rebinding, pause menu, results card, save and Continue; music and sound.
+  179 tests; `node tools/e2e.mjs` passes on the Docker build. Debug flags: `?rooms=test`,
+  `?debug` (`window.highWaterDebug.goto(id)`).
+- **Waiting on Debu:** approval of the three-line intro on the landing page; playing the stages.
+- **Next:**
+  - the Bomber finale (3 rooms, stage slot 5) and the ending scene
+  - polish: a raised drawbridge reads as a pole; the harmless jet looks like the bombing ones; the
+    per-stage time bonus; a `restartRoom` that keeps death counts
+  - GitHub Actions → Pages from `release`
+  - Thursday afternoon: the stranger playtest.
 - Repo: github.com/debudash/game-highwater (public, git remote `origin`). Work on `main`. GitHub
   Pages publishes only from the `release` branch, and Debu decides when to merge to it.
-- Title: **River Guard: High Water** (confirmed by Debu, 2026-11-03). "High Water" is fine as the short name in docs.
-- Nothing new is built yet; the code is still River Guard v1. The next step is the 3D test room
-  (tank drive, jump and fire; chopper flight, fuel, carry and charge; switching) for Debu's feel
-  check, sent as soon as it is ready. Wednesday morning is the look check: keep the 3D look, or
-  fall back to pixel art.
+- Title: **River Guard: High Water** (confirmed by Debu, 2026-11-03). "High Water" is fine as the
+  short name in docs.
+- Issues are logged in `docs/ISSUE_LOG.md`.
 
 ## Assignment constraints (Game Week; due Thursday 2026-11-05 at midnight)
 
