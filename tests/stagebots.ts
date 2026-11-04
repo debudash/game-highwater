@@ -222,17 +222,10 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
     driveKeys(g, k, 1);
     return false;
   }),
-  '2-1': () => script(shootCrossJet(18, 26), driveRightUntil(never)),
-  '2-2': () => script(driveTo(col(4)), ...shootTarget(10), driveRightUntil(never)),
+  '2-1': () => script(tankDodging(shootCrossJet(18, 26)), tankDodging(driveRightUntil(never))),
+  '2-2': () => script(tankDodging(driveTo(col(4))), ...shootTarget(10).map(tankDodging), tankDodging(driveRightUntil(never))),
   '2-3': () => script(driveRightUntil(never)),
-  '2-4': () => script(
-    driveTo(10 * TILE, 2),
-    waitFor((g) => g.room.bombs.length > 0),
-    backOff(56),
-    waitFor((g) => g.room.tiles[6][9] === '.' && g.room.bombs.length === 0),
-    rollUntil(1, (g) => g.player.y > 7 * TILE),
-    driveRightUntil(never),
-  ),
+  '2-4': () => script(lureOntoCrack(10 * TILE), tankDodging(dropInto(10 * TILE, 7 * TILE)), driveRightUntil(never)),
   '3-1': () => script(become('chopper'), flyTo(col(8), 20), flyRightUntil(20)),
   '3-2': () => script(become('chopper'), flyRightUntil(60)),
   '3-3': () => script(become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
@@ -256,7 +249,10 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
   'F-2': () => script(become('chopper'), dodging(fightHatch(col(9), 50)), dodging(flyRightUntil(86))),
   'F-3': () => script(
     become('chopper'), dodging(hookBoat()), dodging(deliver(col(2), 7 * TILE, 50)),
-    sinkUntil(col(2), (g) => g.player.onGround), waitFor((g) => g.player.fuel >= Chopper.fuelTicks), dodging(flyRightUntil(86)),
+    // The run for the castle: no waiting for dives to finish, or the fuel runs out over the lake.
+    sinkUntil(col(2), (g) => g.player.onGround), waitFor((g) => g.player.fuel >= Chopper.fuelTicks),
+    dodging(flyTo(col(10), 80, 3)), dodging(landOn(col(10), 80)), waitFor((g) => g.player.fuel >= Chopper.fuelTicks),
+    dodging(flyRightUntil(86)),
   ),
 };
 
@@ -337,7 +333,7 @@ export const HIDDEN_BOTS: Record<string, () => Policy> = {
  * Wrap a chopper step so it sidesteps danger the way a player would: out of a warned dive column,
  * and out from under a falling bomb. Otherwise the step flies as usual.
  */
-function dodging(step: Step): Step {
+function dodging(step: Step, hold = true): Step {
   return (g, k) => {
     const p = g.player;
     const x = cx(g);
@@ -345,10 +341,86 @@ function dodging(step: Step): Step {
     const dive = g.room.jets.find((j) => j.alive && (j.phase === 'warn' || j.phase === 'dive') && Math.abs(j.aimX - x) < reach);
     const bomb = g.room.bombs.find((b) => b.y < p.y && Math.abs(b.x + b.w / 2 - x) < 18);
     const threat = dive ? dive.aimX : bomb ? bomb.x + bomb.w / 2 : null;
-    if (threat === null) return step(g, k);
+    if (threat === null) {
+      // Clear of a warned column but near it: hold here until the jet has dived and pulled out,
+      // rather than going back into its path.
+      const near = hold && g.room.jets.find((j) => j.alive && (j.phase === 'warn' || j.phase === 'dive') && Math.abs(j.aimX - x) < reach + 30);
+      const done = step(g, k);
+      if (near) {
+        // Let the step steer everything except back towards the column.
+        const towards = near.aimX > x ? 'right' : 'left';
+        k.held = k.held.filter((b) => b !== towards);
+        if (p.vx !== 0 && Math.sign(p.vx) === (towards === 'right' ? 1 : -1)) k.held.push(towards === 'right' ? 'left' : 'right');
+        // ...and hover while waiting, so a step that's sinking to land doesn't sink into water.
+        if (p.vy > 0 && !k.held.includes('jump')) k.held.push('jump');
+      }
+      return done;
+    }
     const away = x < threat ? (x > 30 ? 'left' : 'right') : (x < 290 ? 'right' : 'left');
     k.held.push(away);
     if (p.vy > 20 || p.y > 60) k.held.push('jump');
+    return false;
+  };
+}
+
+/** A bomb falling near enough to the tank to hit it, if any (its centre x). */
+function bombOver(g: Game, reach = 26): number | null {
+  const x = cx(g);
+  const b = g.room.bombs.find((bm) => bm.y < g.player.y && Math.abs(bm.x + bm.w / 2 - x) < reach);
+  return b ? b.x + b.w / 2 : null;
+}
+
+/**
+ * Wrap a tank step so it gets out from under a falling bomb the way a player would, driving away
+ * from it (back the way it came if the way ahead is blocked). Otherwise the step drives as usual.
+ */
+function tankDodging(step: Step): Step {
+  return (g, k) => {
+    const b = bombOver(g);
+    if (b === null) return step(g, k);
+    let dir: 1 | -1 = cx(g) < b ? -1 : 1;
+    if (obstacleAhead(g, dir, 4) && g.player.onGround) dir = dir === 1 ? -1 : 1;
+    k.held.push(dir === 1 ? 'right' : 'left');
+    return false;
+  };
+}
+
+/**
+ * 2-4: stand on the crack until a jet's bomb comes down, get clear, and try again until a bomb has
+ * broken it open. Done when the crack is open and no bomb is falling.
+ */
+function lureOntoCrack(spot: number): Step {
+  return (g, k) => {
+    const open = g.room.tiles[6][9] === '.' || g.room.tiles[6][10] === '.';
+    if (open && g.room.bombs.length === 0) return true;
+    const b = bombOver(g, 40);
+    if (b !== null) {
+      k.held.push(cx(g) <= b ? 'left' : 'right');
+      return false;
+    }
+    if (!open) driveTo(spot, 3)(g, k);
+    return false;
+  };
+}
+
+/** Tank: drive (without jumping) to x and drop into the hole there; done once below `y`. */
+function dropInto(x: number, y: number): Step {
+  return (g, k) => {
+    if (g.player.y > y) return true;
+    const d = x - cx(g);
+    if (Math.abs(d) > 2) k.held.push(d > 0 ? 'right' : 'left');
+    return false;
+  };
+}
+
+/** Chopper: land at x. Off target it flies back over it at height y first; over it, it sinks. */
+function landOn(x: number, y: number): Step {
+  return (g, k) => {
+    const p = g.player;
+    if (p.onGround && Math.abs(cx(g) - x) <= 6) return true;
+    if (Math.abs(cx(g) - x) > 4) flyKeys(g, k, x, Math.min(y, p.y), 2);
+    else if (p.vx > 8) k.held.push('left');
+    else if (p.vx < -8) k.held.push('right');
     return false;
   };
 }

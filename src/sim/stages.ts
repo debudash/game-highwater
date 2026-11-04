@@ -439,7 +439,9 @@ const BOMBER: StageDef = {
       ],
     },
     {
-      id: 'F-2', name: 'THE HATCH', bomber: { mode: 'hatch', row: 6, from: 3, to: 16 },
+      id: 'F-2', name: 'THE HATCH',
+      // It turns a tile short of each shore, so landing on the shore to refuel never clips it.
+      bomber: { mode: 'hatch', row: 6, from: 4, to: 15 },
       prompts: [
         { col: 1, row: 2, text: 'ITS BELLY IS ARMOURED NOW' },
         { col: 1, row: 3, text: 'CHOPPER: {action} DROPS A CHARGE ON ITS HATCH' },
@@ -476,9 +478,11 @@ const BOMBER: StageDef = {
         '...................W',
         '...................G',
         '.P.................G',
-        '#HHH.........B..####',
-        '####~~~~~~~~~~~~####',
-        '####~~~~~~~~~~~~####',
+        // A rock mid-lake to land and refuel on during the run for the castle (the dives use up
+        // fuel); the gaps either side are 6 and 5 tiles, and the gate stays shut until the boat is home.
+        '#HHH......#..B..####',
+        '####~~~~~~#~~~~~####',
+        '####~~~~~~#~~~~~####',
       ],
     },
   ],
