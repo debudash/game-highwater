@@ -120,6 +120,12 @@ export const Jet = {
    * no bombs and can't hurt you; shooting it is optional and pays the usual points.
    */
   harmlessSpeed: 45,
+  /**
+   * Jets attack the boats too (Debu): once the room has run this long, a cross jet passing over a
+   * boat left on the water or the bank drops on it like on you. A bombed boat sinks and the room
+   * restarts, so shoot the jets down or get the boats home quickly.
+   */
+  boatGraceTicks: ms(15000),
 };
 
 export const Bomb = {

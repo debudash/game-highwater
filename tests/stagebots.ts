@@ -2,7 +2,7 @@
 // into the chopper, fly there, hook, set down...). Each step reads the sim the way a player reads
 // the screen. tests/solutions.test.ts runs them all, and tests/ghosts.test.ts records their inputs
 // into src/sim/ghosts.json for the ghost hint.
-import { Chopper, Jet, PLAYER_W, TILE } from '../src/sim/config';
+import { Chopper, Jet, PLAYER_W, Shell, TILE } from '../src/sim/config';
 import { Game, isSolidTile, Item } from '../src/sim/game';
 import { Button } from '../src/sim/input';
 import type { Policy } from './bots';
@@ -199,17 +199,6 @@ const shootTarget = (c: number): Step[] => [
   },
 ];
 
-/** Tank: wait for a cross jet to come within `lead` px of you (towards you) and fire into it. */
-const shootCrossJet = (leadLo: number, leadHi: number): Step => (g, k) => {
-  const jets = g.room.jets.filter((j) => j.alive && j.kind === 'cross');
-  if (!jets.length) return true;
-  for (const j of jets) {
-    if (j.phase !== 'fly') continue;
-    const d = (j.x + j.w / 2 - cx(g)) * -j.dir; // > 0 while it is still coming
-    if (d > leadLo && d < leadHi && !g.shell) k.press.push('action');
-  }
-  return false;
-};
 
 export const STAGE_BOTS: Record<string, () => Policy> = {
   '1-1': () => script(driveRightUntil(never)),
@@ -222,13 +211,13 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
     driveKeys(g, k, 1);
     return false;
   }),
-  '2-1': () => script(tankDodging(shootCrossJet(18, 26)), tankDodging(driveRightUntil(never))),
+  '2-1': () => script(shootAllJets(col(4)), skiesClear(), tankDodging(driveRightUntil(never))),
   '2-2': () => script(tankDodging(driveTo(col(4))), ...shootTarget(10).map(tankDodging), tankDodging(driveRightUntil(never))),
   '2-3': () => script(driveRightUntil(never)),
   '2-4': () => script(lureOntoCrack(10 * TILE), tankDodging(dropInto(10 * TILE, 7 * TILE)), driveRightUntil(never)),
   '3-1': () => script(become('chopper'), flyTo(col(8), 20), flyRightUntil(20)),
   '3-2': () => script(become('chopper'), flyRightUntil(60)),
-  '3-3': () => script(become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), ...refuelAt(col(17) + 8), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
+  '3-3': () => script(become('tank'), shootAllJets(col(2)), skiesClear(), become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), ...refuelAt(col(17) + 8), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
   '3-4': () => script(become('chopper'), flyTo(col(5), 34), flyTo(col(9), 40), hookBoat(), deliver(col(17), 5 * TILE, 20), flyRightUntil(54)),
   '4-1': () => script(
     become('chopper'), flyTo(10 * TILE + 8, 20), charge(), waitFor((g) => !g.room.cacti[0].grown),
@@ -242,7 +231,7 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
   '4-3': () => script(become('chopper'), blastMines(60), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), ...refuelAt(col(17)), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), dodging(flyRightUntil(86))),
   '4-4': () => script(become('chopper'), dodging(hookBoat()), dodging(deliver(col(17) + 4, 7 * TILE, 50)), dodging(flyRightUntil(82))),
   '5-1': () => script(become('chopper'), dodging(flyRightUntil(50))),
-  '5-2': () => script(become('tank'), shootDives(col(2)), become('chopper'), dodging(flyRightUntil(86))),
+  '5-2': () => script(become('tank'), shootAllJets(col(2)), skiesClear(), become('chopper'), dodging(flyRightUntil(86))),
   '5-3': () => script(become('chopper'), flyTo(col(1), 30), dodging(blastMines(60)), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), ...refuelAt(col(17)).map((st) => dodging(st)), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), dodging(flyRightUntil(86))),
   '5-4': () => script(become('chopper'), dodging(hookBoat()), dodging(deliver(col(17) + 8, 7 * TILE, 50)), dodging(flyRightUntil(86))),
   'F-1': () => script(become('tank'), fightBay(col(9)), driveRightUntil(never)),
@@ -443,22 +432,46 @@ function refuelAt(x: number): Step[] {
   return [landOn(x, 70), waitFor((g) => g.player.fuel >= Chopper.fuelTicks)];
 }
 
+
 /**
- * Tank: hold a spot and shoot each dive jet as it comes down your column (fire as the dive
- * starts); if a shot misses and it's still coming, drive out of the column. Done when all are down.
+ * Tank: hold a spot and shoot down every jet in the room. Cross jets are led (fire when the shell
+ * will meet the jet over you); dive jets are met head-on as they dive down your column. Bombs and
+ * missed dives are dodged. Done when no jet is left.
  */
-function shootDives(home: number): Step {
+function shootAllJets(home: number): Step {
+  // Like a player, it learns from a miss: each shell that misses makes it lead the jets a bit more.
+  let lead = 0;
+  let flying = false;
   return (g, k) => {
-    const dives = g.room.jets.filter((j) => j.alive && j.kind === 'dive');
-    if (!dives.length) return true;
+    if (flying && !g.shell && !g.events.some((e) => e.type === 'jetDown')) lead = lead >= 40 ? 0 : lead + 5;
+    flying = !!g.shell;
+    const jets = g.room.jets.filter((j) => j.alive);
+    if (!jets.length) return true;
+    const p = g.player;
     const x = cx(g);
-    const j = dives.find((d) => (d.phase === 'warn' || d.phase === 'dive') && Math.abs(d.aimX - x) < 24);
-    if (j && j.phase === 'dive') {
-      if (!g.shell && j.y < 40) k.press.push('action');
-      else if (j.y >= 40) k.held.push(x < 100 ? 'right' : 'left');
+    const bomb = bombOver(g);
+    if (bomb !== null) {
+      k.held.push(x < bomb ? (x > 24 ? 'left' : 'right') : 'right');
       return false;
+    }
+    const dive = jets.find((d) => d.kind === 'dive' && (d.phase === 'warn' || d.phase === 'dive') && Math.abs(d.aimX - x) < 24);
+    if (dive && dive.phase === 'dive') {
+      if (!g.shell && dive.y < 40) k.press.push('action');
+      else if (dive.y >= 40) k.held.push(x < 100 ? 'right' : 'left');
+      return false;
+    }
+    if (!g.shell && p.onGround) {
+      for (const j of jets) {
+        if (j.kind !== 'cross' || j.phase !== 'fly' || j.x < 0 || j.x + j.w > 320) continue;
+        const t = (p.y - (j.y + j.h / 2)) / Shell.speed;
+        const meet = j.x + j.w / 2 + j.dir * (Jet.crossSpeed * t + lead);
+        if (Math.abs(meet - x) < 4) { k.press.push('action'); break; }
+      }
     }
     driveTo(home, 3)(g, k);
     return false;
   };
 }
+
+/** Tank: wait, dodging, until no bomb is still falling. */
+const skiesClear = (): Step => tankDodging(waitFor((g) => g.room.bombs.length === 0));

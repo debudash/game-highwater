@@ -8,7 +8,7 @@ straight up and folds into a chopper.
 
 ## Status (2026-11-04)
 
-- `docs/GAME_DESIGN.md` holds every design decision; its decision log (rows 1–33) lists them. It is
+- `docs/GAME_DESIGN.md` holds every design decision; its decision log (rows 1–34) lists them. It is
   the source of truth for the design; the brief (`docs/ASSIGNMENT.md`) wins over it.
 - The headlines:
   - **Look B** (decision 25): generated 2D pixel art in the style of quizcaster.com, drawn by the

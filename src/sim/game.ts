@@ -885,7 +885,11 @@ function updateJets(g: Game): void {
       // the drop rule only asked "is the player below?", and HW-002's fall-time check covered tanks
       // on the ground, never a chopper in the air. Fix: no drop unless you're at least Bomb.minDrop
       // below, which is far enough for the bomb's fall to outlast reacting and moving clear.
-      if (!j.harmless && alive && onScreen && j.bombCd === 0 && p.y - (j.y + j.h) >= Bomb.minDrop && Math.abs(cx(j) - cx(p)) < Jet.dropWindow) {
+      const overYou = alive && p.y - (j.y + j.h) >= Bomb.minDrop && Math.abs(cx(j) - cx(p)) < Jet.dropWindow;
+      // Jets attack the boats too, once the room's boat grace is over (config Jet.boatGraceTicks).
+      const overBoat = alive && room.t >= Jet.boatGraceTicks && room.items.some((i) => i.kind === 'boat' && !i.hidden && !i.rescued
+        && !i.carried && i.y - (j.y + j.h) >= Bomb.minDrop && Math.abs(cx(i) - cx(j)) < Jet.dropWindow);
+      if (!j.harmless && onScreen && j.bombCd === 0 && (overYou || overBoat)) {
         room.bombs.push({ x: cx(j) - Bomb.w / 2, y: j.y + j.h, w: Bomb.w, h: Bomb.h, vy: 0 });
         j.bombCd = Jet.bombCooldownTicks;
         emit(g, 'bombDrop', cx(j), j.y + j.h);

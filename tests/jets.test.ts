@@ -67,6 +67,42 @@ describe('cross jets and bombs', () => {
   });
 });
 
+describe('jets attack the boats (Debu: "they can attack ... also the boat")', () => {
+  // A boat floating mid-river, a jet passing over it, and the player on the bank under a roof (so
+  // the jet's bombs on the player burst on the roof).
+  const river = room([
+    'J...................',
+    '....................',
+    '....................',
+    '###.................',
+    '....................',
+    '.P..................',
+    '###.......B.......##',
+    '###~~~~~~~~~~~~~~~##',
+  ]);
+
+  it('a cross jet leaves a boat alone while the room is young', () => {
+    const g = game(river);
+    for (let i = 0; i < Jet.boatGraceTicks - 1; i++) tick(g, input());
+    expect(g.room.bombs.length).toBe(0);
+    expect(g.deaths).toBe(0);
+  });
+
+  it('after that, it bombs a boat left on the water, which sinks it and restarts the room', () => {
+    const g = game(river);
+    const t = until(g, (g) => g.events.some((e) => e.type === 'boatLost'), 60 * 30);
+    expect(t).toBeGreaterThan(Jet.boatGraceTicks);
+    expect(g.deaths).toBe(1);
+  });
+
+  it('a jet shot down bombs nothing', () => {
+    const g = game(river);
+    g.room.jets[0].alive = false;
+    for (let i = 0; i < 60 * 20; i++) tick(g, input());
+    expect(g.deaths).toBe(0);
+  });
+});
+
 describe('the harmless jet (stage 1, decision 28)', () => {
   it('flies right through you without bombing or hurting you', () => {
     // The jet flies in the player's own row, so it passes straight through the tank, again and again.
@@ -96,10 +132,11 @@ describe('the harmless jet (stage 1, decision 28)', () => {
     expect(g.roomPoints).toBe(Points.jet);
   });
 
-  it('is in the last room of Riverside Road, and only there in stage 1', () => {
-    const stage1 = GAME_ROOMS.filter((r) => r.stage === 0);
-    expect(stage1.map((r) => r.rows.join('').includes('h'))).toEqual([false, false, false, true]);
-    expect(stage1.some((r) => /[JjD]/.test(r.rows.join('')))).toBe(false);
+  it('is no longer in the game: every stage has bombing jets (Debu, decision 34)', () => {
+    expect(GAME_ROOMS.some((r) => r.rows.join('').includes('h'))).toBe(false);
+    for (let st = 0; st < STAGES.length; st++) {
+      expect(GAME_ROOMS.some((r) => r.stage === st && /[Jj]/.test(r.rows.join(''))), `stage ${st + 1}`).toBe(true);
+    }
   });
 });
 

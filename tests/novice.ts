@@ -56,6 +56,12 @@ export const NOVICE: Profile = {
   readBase: s(1.5), readPerLine: s(1.8), newIdea: s(4), regroup: s(0.8),
 };
 
+/** Someone who plays games a lot: quick, reads fast, rarely hesitates. */
+export const GAMER: Profile = {
+  name: 'gamer', reactMin: s(0.15), reactMax: s(0.22), motorMin: s(0.01), motorMax: s(0.04), hesitate: 0.001, hesitateMin: s(0.1), hesitateMax: s(0.25),
+  readBase: s(0.6), readPerLine: s(0.5), newIdea: s(1), regroup: s(0.2),
+};
+
 /** Someone who plays now and then. */
 export const CASUAL: Profile = {
   name: 'casual', reactMin: s(0.18), reactMax: s(0.3), motorMin: s(0.02), motorMax: s(0.07), hesitate: 0.002, hesitateMin: s(0.15), hesitateMax: s(0.4),
@@ -87,8 +93,8 @@ export function playRoom(index: number, seed: number, prof: Profile): RoomResult
   const roll = () => {
     const learnt = Math.pow(0.85, deaths);
     return {
-      react: Math.max(PRACTISED.react, Math.round((prof.reactMin + randInt(rng, prof.reactMax - prof.reactMin + 1)) * learnt)),
-      motor: Math.max(PRACTISED.motor, Math.round((prof.motorMin + randInt(rng, prof.motorMax - prof.motorMin + 1)) * learnt)),
+      react: Math.max(Math.min(PRACTISED.react, prof.reactMin), Math.round((prof.reactMin + randInt(rng, prof.reactMax - prof.reactMin + 1)) * learnt)),
+      motor: Math.max(Math.min(PRACTISED.motor, prof.motorMin), Math.round((prof.motorMin + randInt(rng, prof.motorMax - prof.motorMin + 1)) * learnt)),
     };
   };
   let { react, motor } = roll();

@@ -46,7 +46,8 @@ describe('HW-002: bombs give a human time to get clear', () => {
           while (g < 10 && !'#Hx=W'.includes(r.rows[g][col])) g++;
           if (g >= 10 || r.rows[g][col] === 'W') continue;
           const d = g * TILE - PLAYER_H - jetBottom; // to the top of a tank standing there
-          if (d > 0 && fallTicks(d) < budget) slow.push(`${r.id} row ${ri} col ${col}: ${fallTicks(d)} < ${budget} ticks`);
+          // Closer than Bomb.minDrop a jet doesn't drop at all (HW-005).
+          if (d >= Bomb.minDrop && fallTicks(d) < budget) slow.push(`${r.id} row ${ri} col ${col}: ${fallTicks(d)} < ${budget} ticks`);
         }
       }));
     }
@@ -71,7 +72,9 @@ describe('HW-002: bombs give a human time to get clear', () => {
 
   for (const away of ['left', 'right'] as const) {
     it(`HW-002: in F-1, a player who reacts after 350 ms to each Bomber bomb and drives ${away} survives two passes`, () => {
-      const g = game(GAME_ROOMS.find((r) => r.id === 'F-1')!);
+      // The Bomber's bombs on their own (the room's cross jet is covered by the check above).
+      const f1 = GAME_ROOMS.find((r) => r.id === 'F-1')!;
+      const g = game({ ...f1, rows: f1.rows.map((r) => r.replace(/[Jj]/g, '.')) });
       let dropped = -1;
       let dir = away;
       for (let i = 0; i < 1400 && g.deaths === 0; i++) {

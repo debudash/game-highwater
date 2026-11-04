@@ -61,9 +61,10 @@ const RIVERSIDE: StageDef = {
       prompts: [
         { col: 1, row: 1, text: '{action} FIRE UP AT THE TARGET' },
         { col: 12, row: 1, text: 'IT LOWERS THE BRIDGE' },
+        { col: 1, row: 1, text: 'JETS DROP BOMBS: WATCH THE SHADOW' },
       ],
       rows: [
-        '....................',
+        '........J...........',
         '....................',
         '....................',
         '......T...b.........',
@@ -77,13 +78,13 @@ const RIVERSIDE: StageDef = {
     },
     {
       id: '1-4', name: 'HIGH TARGET',
-      // Decision 28: one harmless jet, a first taste before Jet Alley. Shooting it is optional.
+      // Debu: bombing jets in every stage. Stage 1's jets bomb (decision 34 replaces 28's harmless one).
       prompts: [
         { col: 1, row: 4, text: 'JUMP, AND FIRE IN MID-AIR' },
-        { col: 10, row: 1, text: 'A JET! SHOOT IT FOR 100' },
+        { col: 10, row: 1, text: 'SHOOT THE JETS FOR 100' },
       ],
       rows: [
-        'h...................',
+        'J...........j.......',
         '....................',
         '.......T............',
         '....................',
@@ -108,7 +109,7 @@ const JET_ALLEY: StageDef = {
         { col: 9, row: 5, text: 'IT DROPS BOMBS ON YOU' },
       ],
       rows: [
-        '...................W',
+        '......J............W',
         '...................W',
         '..j................W',
         '...................W',
@@ -124,7 +125,7 @@ const JET_ALLEY: StageDef = {
       id: '2-2', name: 'BOMBING RUN',
       prompts: [{ col: 1, row: 4, text: 'WATCH FOR BOMB SHADOWS' }],
       rows: [
-        '....................',
+        '..........j.........',
         'J...................',
         '....................',
         '..........T.........',
@@ -140,7 +141,7 @@ const JET_ALLEY: StageDef = {
       id: '2-3', name: 'DIVE JETS',
       prompts: [{ col: 6, row: 2, text: 'KEEP MOVING: DIVE JETS AIM AT YOU' }],
       rows: [
-        '.....D.....D........',
+        'J....D.....D........',
         '....................',
         '....................',
         '..b.................',
@@ -159,7 +160,7 @@ const JET_ALLEY: StageDef = {
         { col: 1, row: 3, text: 'THEN GET CLEAR' },
       ],
       rows: [
-        '.............#......',
+        '.............#.....j',
         'J............#......',
         '.............#......',
         '.............#......',
@@ -185,7 +186,7 @@ const FLOODPLAIN: StageDef = {
         { col: 13, row: 4, text: 'LAND TO REFUEL' },
       ],
       rows: [
-        '....................',
+        'J...................',
         '....................',
         '....................',
         '..........##........',
@@ -204,7 +205,7 @@ const FLOODPLAIN: StageDef = {
         { col: 1, row: 3, text: 'CRATES FLOAT: DROP ONE TO LAND ON' },
       ],
       rows: [
-        '....................',
+        '...................j',
         '....................',
         '....................',
         '....................',
@@ -223,7 +224,7 @@ const FLOODPLAIN: StageDef = {
         { col: 9, row: 3, text: 'SET IT ON THE DOCK: {action}' },
       ],
       rows: [
-        '...................W',
+        'J..................W',
         '...................W',
         '...................W',
         '...................W',
@@ -239,7 +240,7 @@ const FLOODPLAIN: StageDef = {
       id: '3-4', name: 'HIGH WATER',
       prompts: [{ col: 4, row: 3, text: 'CARRY IT UP TO THE DOCK' }],
       rows: [
-        '...................W',
+        '..................jW',
         '.b.................W',
         '###................W',
         '...................G',
@@ -302,7 +303,7 @@ const MINEFIELD: StageDef = {
         { col: 1, row: 3, text: 'BLAST THEM OR BE QUICK' },
       ],
       rows: [
-        '...................W',
+        '..................jW',
         '...................W',
         '...................W',
         '...................W',
@@ -318,7 +319,7 @@ const MINEFIELD: StageDef = {
       id: '4-4', name: 'MINEFIELD',
       prompts: [{ col: 4, row: 3, text: 'CLEAR THE DOCK FIRST' }],
       rows: [
-        '...................W',
+        'J..................W',
         '..........b........W',
         '.........###.......W',
         '...................W',
@@ -341,7 +342,7 @@ const STORM: StageDef = {
       prompts: [{ col: 1, row: 2, text: 'GUSTS PUSH THE CHOPPER' }],
       rows: [
         '........D...........',
-        '....................',
+        'J...................',
         '....................',
         '....................',
         '....................',
@@ -365,7 +366,7 @@ const STORM: StageDef = {
       ],
       rows: [
         '..D.......D.....D..W',
-        '...................W',
+        '..................jW',
         '...................W',
         '...................W',
         '...................W',
@@ -396,7 +397,7 @@ const STORM: StageDef = {
       id: '5-4', name: 'THE LAST BOAT', wind: { dir: -1, speed: 35, period: 260, duty: 100 },
       prompts: [{ col: 3, row: 4, text: 'BOMBS FROM ABOVE, MINES BELOW' }],
       rows: [
-        '......D............W',
+        'J.....D............W',
         'j..........b.......W',
         '..........###......W',
         '...................W',
@@ -429,7 +430,7 @@ const BOMBER: StageDef = {
         { col: 1, row: 3, text: 'TANK: {action} SHOOTS ITS BOMB BAY' },
       ],
       rows: [
-        '...................W',
+        '..................jW',
         '...................W',
         '...................W',
         '...................W',
@@ -454,7 +455,7 @@ const BOMBER: StageDef = {
       // A dive jet guards it (Debu: "what is the adventure if no one is attacking you"), so
       // you bomb the hatch between dodges; they level out above the Bomber, not through it.
       rows: [
-        '....D..............W',
+        'J...D..............W',
         '...................W',
         '...................W',
         '...................W',
@@ -475,7 +476,7 @@ const BOMBER: StageDef = {
         { col: 1, row: 4, text: 'THEN RUN FOR THE CASTLE' },
       ],
       rows: [
-        '..D........D.......W',
+        'J.D........D.......W',
         'j..................W',
         '...................W',
         '...................W',
