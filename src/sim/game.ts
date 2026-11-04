@@ -875,7 +875,12 @@ function updateJets(g: Game): void {
       j.x += j.dir * (j.harmless ? Jet.harmlessSpeed : Jet.crossSpeed) * DT;
       if (j.bombCd > 0) j.bombCd--;
       const onScreen = j.x > 0 && j.x + j.w < ROOM_PX_W;
-      if (!j.harmless && alive && onScreen && j.bombCd === 0 && p.y > j.y + j.h && Math.abs(cx(j) - cx(p)) < Jet.dropWindow) {
+      // HW-005 — found by the simulated new player in F-3: a cross jet bombed a chopper flying
+      // about 40 px below it, and the bomb arrived before a human could react and move. Root cause:
+      // the drop rule only asked "is the player below?", and HW-002's fall-time check covered tanks
+      // on the ground, never a chopper in the air. Fix: no drop unless you're at least Bomb.minDrop
+      // below, which is far enough for the bomb's fall to outlast reacting and moving clear.
+      if (!j.harmless && alive && onScreen && j.bombCd === 0 && p.y - (j.y + j.h) >= Bomb.minDrop && Math.abs(cx(j) - cx(p)) < Jet.dropWindow) {
         room.bombs.push({ x: cx(j) - Bomb.w / 2, y: j.y + j.h, w: Bomb.w, h: Bomb.h, vy: 0 });
         j.bombCd = Jet.bombCooldownTicks;
         emit(g, 'bombDrop', cx(j), j.y + j.h);
@@ -958,7 +963,7 @@ function updateBomber(g: Game): void {
   } else {
     b.x += b.dir * (b.mode === 'flee' ? Bomber.limpSpeed : Bomber.speed) * DT;
     const onScreen = b.x > 0 && b.x + b.w < ROOM_PX_W;
-    if (b.mode === 'bay' && p.deadTicks === 0 && onScreen && b.bombCd === 0 && p.y > b.y + b.h && Math.abs(cx(b) - cx(p)) < Bomber.dropWindow) {
+    if (b.mode === 'bay' && p.deadTicks === 0 && onScreen && b.bombCd === 0 && p.y - (b.y + b.h) >= Bomb.minDrop && Math.abs(cx(b) - cx(p)) < Bomber.dropWindow) { // HW-005
       g.room.bombs.push({ x: cx(b) - Bomb.w / 2, y: b.y + b.h, w: Bomb.w, h: Bomb.h, vy: 0 });
       b.bombCd = Bomber.bombCooldownTicks;
       emit(g, 'bombDrop', cx(b), b.y + b.h);

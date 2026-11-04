@@ -108,6 +108,35 @@ describe('HW-002: bombs give a human time to get clear', () => {
   }
 });
 
+// HW-005 — found by the simulated new player (tests/novice.ts) in F-3: a cross jet bombed a
+// chopper flying about 40 px below it, and the bomb arrived before a human could react and move.
+describe('HW-005: a jet\'s bomb gives a chopper in the air time to get clear', () => {
+  for (const y of [34, 50, 70, 90]) {
+    for (const away of ['left', 'right'] as const) {
+      it(`HW-005: a chopper hovering at y ${y} under a cross jet, reacting after 350 ms and moving ${away}, survives`, () => {
+        const rows = Array.from({ length: 10 }, () => '....................');
+        rows[1] = 'J...................';
+        rows[8] = '.........P..........';
+        rows[9] = '####################';
+        const g = game(room(rows));
+        tick(g, input([], ['switch']));
+        let dropped = -1;
+        for (let i = 0; i < 900 && g.deaths === 0; i++) {
+          const p = g.player;
+          if (dropped < 0 && g.events.some((e) => e.type === 'bombDrop')) dropped = i;
+          const held: ('left' | 'right' | 'jump')[] = [];
+          if (p.y > y || p.vy > 30) held.push('jump');
+          if (dropped >= 0 && i - dropped >= REACT && i - dropped < REACT + 30) held.push(away);
+          tick(g, input(held));
+          if (dropped >= 0 && i - dropped > 200) break;
+          if (p.fuel < 5) { p.fuel = 60 * 3; } // the test is about the bomb, not the fuel
+        }
+        expect(g.deaths).toBe(0);
+      });
+    }
+  }
+});
+
 describe('F-2: dive jets guard the Bomber, fairly', () => {
   const F2 = GAME_ROOMS.find((r) => r.id === 'F-2')!;
 

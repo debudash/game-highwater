@@ -132,6 +132,12 @@ export const Bomb = {
   blastRadius: 20,
   /** The burst kills you within this distance of your centre (px). */
   killRadius: 15,
+  /**
+   * HW-005: a jet (or the Bomber) only drops on you when you're at least this far below it (px,
+   * from its belly to your top). Closer than that, a bomb reaches a chopper before a human can
+   * react and move clear (tests/fairness.test.ts). Tanks on the ground are always farther.
+   */
+  minDrop: 40,
 };
 
 /**
