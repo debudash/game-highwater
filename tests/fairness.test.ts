@@ -207,3 +207,16 @@ describe('HW-003: a dive jet never pulls out through a player who dodged', () =>
     }
   }
 });
+
+// HW-006 — found by the simulated new player (tests/novice.ts) in 2-4: a jet reached the room's
+// entrance half a second after you came in (and again after every respawn), so a player who
+// paused to read the messages was bombed before they could move.
+describe('HW-006: no room attacks you at the door', () => {
+  for (const def of GAME_ROOMS) {
+    it(`HW-006: ${def.id} ${def.name}: standing still at the entrance for 2.5 s is safe`, () => {
+      const g = game(def);
+      for (let i = 0; i < ms(2500) && g.deaths === 0; i++) tick(g, input([]));
+      expect(g.deaths).toBe(0);
+    });
+  }
+});

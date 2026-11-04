@@ -81,9 +81,10 @@ describe('the harmless jet (stage 1, decision 28)', () => {
 
   it('is slow, and a shell still brings it down for the usual points', () => {
     const g = game(room(['h...................', '....................', '....................', '....................', '.........P..........', '####################']));
-    tick(g, input());
-    tick(g, input());
     const j = g.room.jets[0];
+    // Its first pass starts after the entry grace (HW-006).
+    for (let i = 0; i < 400 && j.phase !== 'fly'; i++) tick(g, input());
+    tick(g, input());
     const x0 = j.x;
     tick(g, input());
     expect((j.x - x0) * 60).toBeCloseTo(Jet.harmlessSpeed, 3);

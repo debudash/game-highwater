@@ -270,7 +270,12 @@ function newItem(id: number, kind: Item['kind'], x: number, y: number): Item {
 /** A cross jet at a map cell: it flies at that row; its column staggers its first entry. */
 function crossJet(id: number, col: number, row: number, dir: 1 | -1): JetState {
   const j: JetState = {
-    id, kind: 'cross', alive: true, phase: 'wait', timer: 1 + col * Jet.staggerTicks, dir,
+    // HW-006 — found by the simulated new player in 2-4: a jet in the map's first columns entered
+    // at once and was over the entrance half a second after you came in (and after every
+    // respawn), so pausing to read the room got you bombed. Root cause: the first entry was only
+    // the column stagger, near 0 for a jet drawn at the left. Fix: no first pass before
+    // Jet.entryGraceTicks; the stagger still spaces jets drawn further along.
+    id, kind: 'cross', alive: true, phase: 'wait', timer: Math.max(Jet.entryGraceTicks, 1 + col * Jet.staggerTicks), dir,
     bombCd: 0, aimX: 0, pullY: 0, respawn: 0, scored: false, harmless: false, x: 0, y: row * TILE + (TILE - Jet.h) / 2, w: Jet.w, h: Jet.h,
   };
   parkJet(j);

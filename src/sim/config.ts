@@ -102,6 +102,11 @@ export const Jet = {
   bombCooldownTicks: ms(1200),
   /** Ticks per tile of the stagger in a jet's first entry (its column in the map). */
   staggerTicks: ms(250),
+  /**
+   * HW-006: a cross jet's first pass starts no sooner than this after the room (re)starts, so you
+   * have time to read the room before anything reaches the entrance (tests/fairness.test.ts).
+   */
+  entryGraceTicks: ms(2000),
   /** Dive jets: the warning lasts this long before the dive, and the aim locks when it starts. */
   warnTicks: ms(900),
   diveSpeed: 190,
