@@ -18,7 +18,7 @@ import type { Quality } from '../view/scene';
 import { Fx2D } from './fx2d';
 import * as P from './placeholders';
 import { SPRITES, SpriteBank, SpriteName } from './sprites';
-import { BG_BY_LIGHT, drawBombs, drawJets, drawRain, drawWind } from './stagefx';
+import { BG_BY_LIGHT, drawBomber, drawBombs, drawJets, drawRain, drawWind } from './stagefx';
 
 /** The ghost hint: a private copy of the room replaying its recorded solution (see src/sim/ghost.ts). */
 interface Ghost { g: Game; inputs: TickInput[]; i: number; acc: number; fade: number }
@@ -314,6 +314,8 @@ export class World2D {
         case 'jetDown': this.fx.chips(x, y, [C.jet, C.red, C.cream, C.bomb], 20); this.fx.sparks(x, y); this.fx.smoke(x, y, 8); this.shakeBy(0.3); break;
         case 'bombBlast': this.fx.chips(x, y, [C.soil, C.soilDark, C.bomb, C.red], 18); this.fx.sparks(x, y); this.fx.smoke(x, y - 20, 10); this.shakeBy(0.5); break;
         case 'bombDrop': this.fx.sparks(x, y); break;
+        case 'bomberHit': this.fx.chips(x, y, [C.jet, C.red, C.cream, C.bomb], 24); this.fx.sparks(x, y); this.fx.smoke(x, y, 10); this.shakeBy(0.45); break;
+        case 'bomberDown': this.fx.chips(x, y, [C.jet, C.red, C.brass, C.bomb], 40); this.fx.sparks(x, y); this.fx.smoke(x, y, 18); this.shakeBy(0.8); break;
         case 'gust': this.fx.dust(x, ROOM_H * T - 40, 3); break;
       }
     }
@@ -413,6 +415,8 @@ export class World2D {
     ctx.save();
     ctx.translate(rv.x0, 0);
 
+    // The burning Bomber limps across in the distance, behind the land (the last room).
+    if (room.bomber) drawBomber(ctx, room, room.bomber, this.bank.get('bomber'), t, true);
     this.drawTerrain(rv);
 
     // Gate tower: drawn over the terrain so it stands in front of the castle wall ('W') that
@@ -506,6 +510,7 @@ export class World2D {
       this.drawProjectiles(this.game);
     }
     drawJets(ctx, room, room.jets, this.bank.get('jet'), t);
+    if (room.bomber) drawBomber(ctx, room, room.bomber, this.bank.get('bomber'), t, false);
     if (current) drawWind(ctx, windAt(room), room.def.wind?.speed ?? 1, t);
     ctx.restore();
   }

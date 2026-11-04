@@ -44,6 +44,25 @@ export const INTRO = [
   'CARRY THE BOATS HOME AND REACH THE CASTLE BEFORE DAWN.',
 ];
 
+/** The ending (design: "The ending"): shown line by line at dawn before the results card. */
+export const ENDING = [
+  'THE BOMBER IS DOWN AND THE SUN IS UP.',
+  'THE WATER IS FALLING AND THE BOATS ARE HOME.',
+  'ONE BY ONE, THE DRAWBRIDGES COME DOWN.',
+  'THE VALLEY IS SAFE. WELL DONE, RIVER GUARD.',
+];
+
+/** The credits, under the results card (Debu's wording). */
+export const CREDITS = [
+  'A GAME FOR FUN AND ADVENTURE',
+  'ART GENERATED WITH NANO BANANA',
+  'CODE, SOUND AND MUSIC MADE WITH CLAUDE',
+];
+
+/** Seconds per ending line, and the pause on the last one before the card. */
+const ENDING_LINE = 2.2;
+const ENDING_HOLD = 2;
+
 export class Ui {
   screen: Screen = 'title';
   private sel = 0;
@@ -54,6 +73,8 @@ export class Ui {
   best = 0;
   results: Results | null = null;
   private time = 0;
+  /** Seconds since the results opened: the ending plays first, then the card. */
+  private endingT = 0;
   /** Stage title card shown for a moment when a stage begins. */
   private banner: { text: string; sub: string; t: number } | null = null;
 
@@ -66,8 +87,14 @@ export class Ui {
       this.settingsFrom = this.screen;
       this.keys = new KeyScreen(this.settings);
     }
+    if (s === 'results') this.endingT = 0;
     this.screen = s;
     this.sel = 0;
+  }
+
+  /** The ending is still playing (before the results card). */
+  get endingPlaying(): boolean {
+    return this.screen === 'results' && this.endingT < ENDING.length * ENDING_LINE + ENDING_HOLD;
   }
 
   showBanner(text: string, sub: string): void {
@@ -113,6 +140,11 @@ export class Ui {
       return true;
     }
     if (repeat && (code === 'Enter' || code === 'Space')) return true;
+    // Any key during the ending skips to the results card.
+    if (this.endingPlaying) {
+      this.endingT = 999;
+      return true;
+    }
     const items = this.menu();
     if (code === 'ArrowUp' || code === 'KeyW') this.sel = (this.sel + items.length - 1) % items.length;
     else if (code === 'ArrowDown' || code === 'KeyS') this.sel = (this.sel + 1) % items.length;
@@ -186,6 +218,7 @@ export class Ui {
   /** Draws the open screen (and the stage banner during play) over the HUD. */
   draw(dt: number, logoBottomPx: number | null): void {
     this.time += dt;
+    if (this.screen === 'results') this.endingT += dt;
     const W = this.hud.w;
     const H = this.hud.h;
     const c = this.c;
@@ -197,7 +230,8 @@ export class Ui {
         c.globalAlpha = Math.min(1, b.t * 4, (3 - b.t) * 2);
         const w = Math.max(textWidth(b.text) * 2, textWidth(b.sub)) + 24;
         const x = Math.round((W - w) / 2);
-        const y = Math.round(H * 0.22);
+        // Below the room messages stacked down the left edge, so the banner never covers them.
+        const y = Math.round(H * 0.42);
         this.hud.plaque(x, y, w, 34);
         this.centre(b.sub, y + 5, C.inkDim);
         this.big(b.text, Math.round((W - textWidth(b.text) * 2) / 2), y + 15, 2, C.brass);
@@ -274,7 +308,28 @@ export class Ui {
     this.c.fillRect(0, 0, this.hud.w, this.hud.h);
   }
 
+  /** The ending: its lines fade in one by one over the dawn. */
+  private drawEnding(): void {
+    const H = this.hud.h;
+    this.dim(0.18);
+    const y0 = Math.round(H * 0.3);
+    ENDING.forEach((l, i) => {
+      const a = Math.max(0, Math.min(1, (this.endingT - i * ENDING_LINE) / 0.8));
+      if (a <= 0) return;
+      this.c.globalAlpha = a;
+      const w = textWidth(l) + 14;
+      this.hud.plaque(Math.round((this.hud.w - w) / 2), y0 + i * 18 - 3, w, 13);
+      this.centre(l, y0 + i * 18, i === ENDING.length - 1 ? C.brass : C.ink);
+      this.c.globalAlpha = 1;
+    });
+    if (Math.floor(this.time * 1.5) % 2 === 0) this.centre('PRESS ANY KEY', H - 16, C.inkDim);
+  }
+
   private drawResults(): void {
+    if (this.endingPlaying) {
+      this.drawEnding();
+      return;
+    }
     const r = this.results;
     const W = this.hud.w;
     const H = this.hud.h;
@@ -303,7 +358,11 @@ export class Ui {
       const list = r.skipped.slice(0, 3).join(', ') + (r.skipped.length > 3 ? '...' : '');
       this.centre(list.slice(0, 34), y + 7 + rows.length * 13, C.inkDim);
     }
-    this.drawMenu(this.menu(), W / 2, y + h + 8, 120);
+    const end = this.drawMenu(this.menu(), W / 2, y + h + 8, 120);
+    const top = Math.max(end + 10, H - 10 - CREDITS.length * 10);
+    const cw = Math.max(...CREDITS.map(textWidth)) + 16;
+    this.hud.plaque(Math.round((W - cw) / 2), top - 5, cw, CREDITS.length * 10 + 7);
+    CREDITS.forEach((l, i) => this.centre(l, top + i * 10, i ? C.inkDim : C.brass));
   }
 
   private drawSettings(): void {

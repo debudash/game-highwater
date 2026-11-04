@@ -2,7 +2,7 @@
 // into the chopper, fly there, hook, set down...). Each step reads the sim the way a player reads
 // the screen. tests/solutions.test.ts runs them all, and tests/ghosts.test.ts records their inputs
 // into src/sim/ghosts.json for the ghost hint.
-import { Chopper, TILE } from '../src/sim/config';
+import { Chopper, Jet, PLAYER_W, TILE } from '../src/sim/config';
 import { Game, isSolidTile, Item } from '../src/sim/game';
 import { Button } from '../src/sim/input';
 import type { Policy } from './bots';
@@ -252,7 +252,63 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
   '5-2': () => script(become('chopper'), flyRightUntil(50)),
   '5-3': () => script(become('chopper'), hookBoat(), deliver(col(17), 7 * TILE, 50), flyRightUntil(86)),
   '5-4': () => script(become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
+  'F-1': () => script(become('tank'), fightBay(col(9)), driveRightUntil(never)),
+  'F-2': () => script(become('chopper'), fightHatch(col(9), 50), flyRightUntil(86)),
+  'F-3': () => script(
+    become('chopper'), dodging(hookBoat()), dodging(deliver(col(2), 7 * TILE, 50)),
+    sinkUntil(col(2), (g) => g.player.onGround), waitFor((g) => g.player.fuel >= Chopper.fuelTicks), dodging(flyRightUntil(86)),
+  ),
 };
+
+/**
+ * F-1: hold a spot on the shore. Fire up into the Bomber as it comes over; when a bomb drops near,
+ * drive away from it against the Bomber's heading (so it doesn't follow), then come back.
+ */
+function fightBay(home: number): Step {
+  return (g, k) => {
+    const b = g.room.bomber!;
+    if (b.hp <= 0) return true;
+    const x = cx(g);
+    const bomb = g.room.bombs.find((bm) => Math.abs(bm.x + bm.w / 2 - x) < 34);
+    if (bomb) {
+      const dir: 1 | -1 = b.dir === 1 ? -1 : 1;
+      k.held.push(dir === 1 ? 'right' : 'left');
+      return false;
+    }
+    const ahead = (b.x + b.w / 2 - x) * -b.dir; // > 0 while it's still coming
+    if (b.phase === 'fly' && b.hurt === 0 && !g.shell && ahead > -4 && ahead < 26) k.press.push('action');
+    driveTo(home, 4)(g, k);
+    return false;
+  };
+}
+
+/**
+ * F-2: hover over the lake and drop a charge so it lands on the Bomber's hatch as it passes; fly
+ * back to the shore and land to refuel when the tank runs low.
+ */
+function fightHatch(spot: number, y: number): Step {
+  let refuel = false;
+  return (g, k) => {
+    const b = g.room.bomber!;
+    const p = g.player;
+    if (b.hp <= 0) return true;
+    if (refuel) {
+      if (p.onGround && p.fuel >= Chopper.fuelTicks) refuel = false;
+      else if (Math.abs(cx(g) - col(1)) > 4) flyKeys(g, k, col(1), y, 3);
+      else if (!p.onGround) {
+        const d = col(1) - cx(g);
+        if (d > 2) k.held.push('right');
+        else if (d < -2) k.held.push('left');
+      }
+      return false;
+    }
+    if (p.fuel < Chopper.fuelTicks * 0.3) { refuel = true; return false; }
+    flyKeys(g, k, spot, y, 3);
+    const lead = (b.x + b.w / 2 + b.dir * 10 - cx(g));
+    if (b.phase === 'fly' && b.hurt === 0 && !g.charge && Math.abs(lead) < 8 && Math.abs(p.vx) < 30) k.press.push('action');
+    return false;
+  };
+}
 
 /** Tank: jump one way from where you stand, holding the jump, until you land again. */
 const leap = (dir: 1 | -1): Step => {
@@ -276,3 +332,23 @@ export const HIDDEN_BOTS: Record<string, () => Policy> = {
   '4-4': () => script(become('chopper'), flyTo(col(10), 4), sinkUntil(col(10), (g) => g.room.hiddenHome > 0)),
   '5-4': () => script(become('chopper'), flyTo(col(11), 4), sinkUntil(col(11), (g) => g.room.hiddenHome > 0)),
 };
+
+/**
+ * Wrap a chopper step so it sidesteps danger the way a player would: out of a warned dive column,
+ * and out from under a falling bomb. Otherwise the step flies as usual.
+ */
+function dodging(step: Step): Step {
+  return (g, k) => {
+    const p = g.player;
+    const x = cx(g);
+    const reach = (PLAYER_W + Jet.w) / 2 + 6;
+    const dive = g.room.jets.find((j) => j.alive && (j.phase === 'warn' || j.phase === 'dive') && Math.abs(j.aimX - x) < reach);
+    const bomb = g.room.bombs.find((b) => b.y < p.y && Math.abs(b.x + b.w / 2 - x) < 18);
+    const threat = dive ? dive.aimX : bomb ? bomb.x + bomb.w / 2 : null;
+    if (threat === null) return step(g, k);
+    const away = x < threat ? (x > 30 ? 'left' : 'right') : (x < 290 ? 'right' : 'left');
+    k.held.push(away);
+    if (p.vy > 20 || p.y > 60) k.held.push('jump');
+    return false;
+  };
+}

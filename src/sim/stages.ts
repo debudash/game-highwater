@@ -408,8 +408,78 @@ const STORM: StageDef = {
   ],
 };
 
-/** The Bomber finale (3 rooms) slots in here, after Storm Front. */
-const BOMBER: StageDef = { id: 'bomber', name: 'THE BOMBER', light: 'dawn', canSwitch: true, rooms: [] };
+/**
+ * The Bomber finale (design stage F): one fight over three rooms, each its own checkpoint, using
+ * everything so far. F-1: shoot its bomb bay from the shore while dodging its bombs (stage 2's
+ * skill). F-2: its belly is armoured, so drop charges on its hatch as it skims the lake, flying back
+ * to the shore to refuel (stages 3-4). F-3: its last engine burns, it sheds dive jets, and the boat it
+ * shot down must be carried home (stages 2-5). There's no river the tank can cross in any of them:
+ * the gates stay shut until the Bomber is beaten or the boat is home.
+ */
+const BOMBER: StageDef = {
+  id: 'bomber', name: 'THE BOMBER', light: 'dawn', canSwitch: true,
+  rooms: [
+    {
+      id: 'F-1', name: 'THE BOMB BAY', bomber: { mode: 'bay', row: 1 },
+      prompts: [
+        { col: 1, row: 2, text: 'BRING DOWN THE BOMBER' },
+        { col: 1, row: 3, text: 'TANK: {action} SHOOTS ITS BOMB BAY' },
+      ],
+      rows: [
+        '...................W',
+        '...................W',
+        '...................W',
+        '...................W',
+        '...................W',
+        '...................G',
+        '.P.................G',
+        '####################',
+        '####################',
+        '####################',
+      ],
+    },
+    {
+      id: 'F-2', name: 'THE HATCH', bomber: { mode: 'hatch', row: 6, from: 3, to: 16 },
+      prompts: [
+        { col: 1, row: 2, text: 'ITS BELLY IS ARMOURED NOW' },
+        { col: 1, row: 3, text: 'CHOPPER: {action} DROPS A CHARGE ON ITS HATCH' },
+        { col: 1, row: 4, text: 'LAND ON THE SHORE TO REFUEL' },
+      ],
+      rows: [
+        '...................W',
+        '...................W',
+        '...................W',
+        '...................W',
+        '...................W',
+        '...................G',
+        '.P.................G',
+        '###~~~~~~~~~~~~~~###',
+        '###~~~~~~~~~~~~~~###',
+        '###~~~~~~~~~~~~~~###',
+      ],
+    },
+    {
+      id: 'F-3', name: 'THE LAST ENGINE', bomber: { mode: 'flee', row: 2 },
+      prompts: [
+        { col: 1, row: 2, text: 'IT SHOT DOWN A BOAT AS IT FELL' },
+        { col: 1, row: 3, text: 'CARRY IT BACK TO YOUR DOCK' },
+        { col: 1, row: 4, text: 'THEN RUN FOR THE CASTLE' },
+      ],
+      rows: [
+        '..D........D.......W',
+        'j..................W',
+        '...................W',
+        '...................W',
+        '...................W',
+        '...................G',
+        '.P.................G',
+        '#HHH.........B..####',
+        '####~~~~~~~~~~~~####',
+        '####~~~~~~~~~~~~####',
+      ],
+    },
+  ],
+};
 
 export const STAGES: StageDef[] = [RIVERSIDE, JET_ALLEY, FLOODPLAIN, MINEFIELD, STORM, BOMBER];
 

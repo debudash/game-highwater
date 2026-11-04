@@ -172,7 +172,7 @@ Each new idea first appears in a room where you can't die, then in a room that t
 | 3 | **Floodplain** | Afternoon, the flood turns serious | Switch, fly, fuel, carry | Water kills the tank. Fly across, land to refuel, drop crates as landing islands, carry 2 boats to the bank | 4 |
 | 4 | **Minefield** | Dusk | The chopper's charge | Blast cacti and land before they regrow, break floors from above, clear mines drifting towards a boat | 4 |
 | 5 | **Storm Front** | Night, rain, dark and tense | Mid-air switch and wind | Jets chase the chopper, so drop out as the tank to shoot, then fold back before the water. Gusts push the chopper. A boat threatened from above and below at once | 4 |
-| F | **The Bomber** | Dawn over the flood, tense, then bright | Everything | Phase 1: shoot its bomb bay from the shore through lines of bombs. Phase 2: it skims the lake, so drop charges on its hatch, then switch to shoot its belly as it climbs. Phase 3: it sheds dive jets as its last engine burns, and the boat it shot down must be carried home before the castle closes | 3 |
+| F | **The Bomber** | Dawn over the flood, tense, then bright | Everything | Phase 1 (F-1): it crosses high over the shore, bombing you when it's over you; shoot its bomb bay 3 times as it comes over. Phase 2 (F-2): it skims the lake with its belly armoured, so drop 3 charges on its glowing hatch, flying back to the shore to refuel. Phase 3 (F-3): its last engine burns as it limps away in the distance, dive jets and a bomber jet come at you, and the boat it shot down must be carried back to your dock. As built (decision 31) | 3 |
 
 **Totals:**
 - 23 rooms at roughly 30 s each including retries, plus the story and ending: about 12–14 minutes
@@ -352,11 +352,10 @@ pixel-rendered 3D prototype. This section supersedes the 3D notes kept below for
 
 **Infrastructure:**
 - **Local serving:** Docker on port **8138**. River Guard keeps 8137.
-- **Public link:** a GitHub Actions workflow runs the tests and the build, then publishes to GitHub
-  Pages (`debudash.github.io/game-highwater`).
-  - It publishes **only from the `release` branch**. `main` moves freely, and the judges' link
-    changes only when Debu merges to `release`.
-  - The Vite `base` is `/game-highwater/`.
+- **Public link (decision 32):** the game is hosted from its Docker image on Fly.io or Railway,
+  and the code goes to the Gauntlet GitLab, both at the final stage. Until then `main` is pushed to
+  GitHub. (This replaces the earlier plan of GitHub Pages from a `release` branch.) The Vite `base`
+  is `./`, so the build serves from any path.
 - **River Guard's specs:** `river-guard-*.md` moves to `docs/river-guard/` as v1 reference.
 - **Solvability:** every room has a recorded solution that runs as a test. The same recording feeds
   the ghost hint.
@@ -421,7 +420,7 @@ Checked against [ASSIGNMENT.md](ASSIGNMENT.md), the brief that is the requiremen
 | Intentional difficulty | A gentle main path, harder hidden-boat routes, rooms checked by death counts |
 | Varied challenges, not a clone or cosmetic repeats | Each stage changes what the player does: aim, dodge, ferry, blast, switch mid-air, fight |
 | Reasonable retry | Instant respawn, a ghost hint after 5 deaths, a skip offer after 10, Bomber checkpoints, a saved Continue |
-| Final challenge, clear ending | The three-phase Bomber, the dawn ending scene and the results card |
+| Final challenge, clear ending | The three-phase Bomber (F-1 to F-3), the dawn ending (four lines, then the results card with the credits) |
 | Beginning, middle, end | Landing page with the intro; five stages; finale, ending and results |
 | Clear objective | The landing-page intro says the goal; the HUD shows the boats needed; gates show when they're open |
 | 10–15 minutes | 23 rooms at roughly 30 s each, plus story and ending |
@@ -431,7 +430,7 @@ Checked against [ASSIGNMENT.md](ASSIGNMENT.md), the brief that is the requiremen
 | Finish the details | One font, a fixed HUD layout, animation on every action, a mixed sound level, feedback on every hit and pickup |
 | All assets generated | Every image generated in Gemini from the prompts in ART_PROMPTS.md and cleaned by script; font, music and sound generated in code; the README says how |
 | Playable by someone else | An intro and controls on the landing page, rebindable keys, controls on the pause screen, safe teaching rooms, key prompts, a stranger playtest |
-| Browser link | GitHub Pages, published from `release` |
+| Browser link | The Docker image hosted on Fly.io or Railway (decision 32) |
 
 ## Decision log
 
@@ -472,3 +471,5 @@ All settled by Debu on 2026-11-03.
 | 28 | **A teaser jet in stage 1 (Debu):** Riverside Road's last room has one slow jet that drops no bombs and can't hurt you. Shooting it is optional and scores +100; jets turn dangerous in Jet Alley |
 | 29 | **The tank can't do the chopper's job (Debu, HW-004):** where the chopper is needed (every room that allows switching), no tank jump ever gets across: water gaps are wider than the tank's longest jump, and upper routes are walled off. `tests/tankonly.test.ts` searches every tank route in those rooms to keep it so |
 | 30 | **Attacks are fair to a human (Debu, HW-002/HW-003):** every bomb and dive gives a player who reacts 350 ms after the cue time to drive clear with a margin. `tests/fairness.test.ts` keeps it so |
+| 31 | **The Bomber as built (Claude, 2026-11-04; Debu: "submit by today"):** three rooms, each a checkpoint. F-1 shoot its bay 3 times; F-2 3 charges on its hatch (its belly is armoured: shells clank off); F-3 it limps off burning in the distance while dive jets and a bomber jet attack and you carry its last boat to your dock. Cut from the design: shooting its belly as it climbs in phase 2, and the castle closing on a timer in phase 3. Its bombs follow decision 30, and decision 29 holds (the gates stay shut until it's beaten or the boat is home). The ending is four lines at dawn, then the results card with Debu's credits: "A GAME FOR FUN AND ADVENTURE / ART GENERATED WITH NANO BANANA / CODE, SOUND AND MUSIC MADE WITH CLAUDE" |
+| 32 | **Hosting (Debu, 2026-11-04):** push to GitHub for now; at the final stage host on Fly.io or Railway and push to the Gauntlet GitLab. No GitHub Pages. Cut for time: the per-stage time bonus, Restart Room keeping the death count, landing-page frame-rate work |

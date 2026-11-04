@@ -53,6 +53,37 @@ describe('HW-002: bombs give a human time to get clear', () => {
     expect(slow).toEqual([]);
   });
 
+  it('HW-002: the Bomber\'s bombs take long enough to reach the tank too', () => {
+    const budget = REACT + escapeTicks(CLEAR) + MARGIN;
+    const slow: string[] = [];
+    for (const r of GAME_ROOMS.filter((r) => r.bomber?.mode === 'bay')) {
+      const bottom = (r.bomber!.row + 1) * TILE - 2;
+      for (let col = 0; col < 20; col++) {
+        let g = r.bomber!.row + 1;
+        while (g < 10 && !'#Hx=W'.includes(r.rows[g][col])) g++;
+        if (g >= 10 || r.rows[g][col] === 'W') continue;
+        const d = g * TILE - PLAYER_H - bottom;
+        if (d > 0 && fallTicks(d) < budget) slow.push(`${r.id} col ${col}: ${fallTicks(d)} < ${budget} ticks`);
+      }
+    }
+    expect(slow).toEqual([]);
+  });
+
+  for (const away of ['left', 'right'] as const) {
+    it(`HW-002: in F-1, a player who reacts after 350 ms to each Bomber bomb and drives ${away} survives two passes`, () => {
+      const g = game(GAME_ROOMS.find((r) => r.id === 'F-1')!);
+      let dropped = -1;
+      let dir = away;
+      for (let i = 0; i < 1400 && g.deaths === 0; i++) {
+        if (g.events.some((e) => e.type === 'bombDrop')) { dropped = i; dir = g.player.x < 40 ? 'right' : g.player.x > 260 ? 'left' : away; }
+        const go = dropped >= 0 && i - dropped >= REACT && i - dropped < REACT + 40;
+        tick(g, input(go ? [dir] : []));
+      }
+      expect(dropped).toBeGreaterThanOrEqual(0);
+      expect(g.deaths).toBe(0);
+    });
+  }
+
   // The lowest jets over the highest ground in the stage rooms (2-4: jet row 1 over ground at row 6;
   // 2-1: jet row 2 over ground at row 7): the shortest drops in the game.
   for (const [jetRow, groundRow] of [[1, 6], [2, 7]]) {

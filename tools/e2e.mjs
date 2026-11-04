@@ -161,7 +161,7 @@ for (const id of ids) {
   toured.push({ id, ok: s.id === id && s.phase === 'playing' });
 }
 report.stageTour = toured.filter((t) => !t.ok);
-report.checkpoints['every stage room drawn'] = { ok: toured.length === 20 && toured.every((t) => t.ok), rooms: toured.length };
+report.checkpoints['every stage room drawn'] = { ok: toured.length === 23 && toured.every((t) => t.ok), rooms: toured.length };
 
 // Pause
 await page.keyboard.press('Escape');

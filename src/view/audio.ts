@@ -218,6 +218,10 @@ const SOUNDS: Record<EventType, Voice> = {
   // Room skipped: a soft whoosh onward.
   skip: (s, t) => s.whoosh(t, 300, 1800, 0.5, 0.08),
   // The last room left: the castle bells ring out.
+  // The Bomber hit: a heavy metal clang with a burst, and a ringing of the airframe.
+  bomberHit: (s, t) => { s.burst(t, { type: 'highpass', freq: 1600, decay: 0.06, gain: 0.45 }); s.metal(t, 420, 0.5, 0.09, [1, 1.5, 2.3, 3.4]); s.thump(t, 110, 38, 0.35, 0.55); s.burst(t + 0.03, { type: 'lowpass', freq: 3000, to: 250, decay: 0.5, gain: 0.3 }); },
+  // The Bomber beaten: a long blast, its engines winding down, then a bright fanfare.
+  bomberDown: (s, t) => { s.thump(t, 90, 28, 0.7, 0.7); s.burst(t, { type: 'lowpass', freq: 4500, to: 150, decay: 1.1, gain: 0.45 }); s.burst(t + 0.1, { type: 'bandpass', freq: 1400, to: 200, q: 3, decay: 1.4, gain: 0.2 }); s.sparkle(t + 0.6, [523, 659, 784, 1047, 1319], 0.09, 0.06); s.horn(t + 0.9, 262, 0.7, 0.08); },
   complete: (s, t) => { s.sparkle(t, [523, 659, 784, 1047, 784, 1047, 1319, 1568], 0.12, 0.07); s.horn(t + 0.2, 196, 0.5, 0.08); s.horn(t + 0.8, 262, 0.8, 0.08); },
   // Crumbling floor: grit and falling stones.
   floorBreak: (s, t) => { s.burst(t, { type: 'lowpass', freq: 1200, to: 200, decay: 0.5, gain: 0.25 }); for (let i = 0; i < 6; i++) s.knock(t + i * vary(0.07, 0.4), vary(250, 0.3), 0.09, 0.06); },

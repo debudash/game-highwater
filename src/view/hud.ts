@@ -11,7 +11,7 @@ import { C, css } from './palette';
 export interface Popup { text: string; x: number; y: number; t: number }
 
 /** Events whose `n` is points scored (jets come with the stages; their names are guessed here). */
-const SCORING = new Set(['rescue', 'mineClear', 'jetDown', 'jetHit', 'jetKill', 'targetScore']);
+const SCORING = new Set(['rescue', 'mineClear', 'jetDown', 'jetHit', 'jetKill', 'targetScore', 'bomberHit', 'bomberDown']);
 
 /** HUD pixels are drawn at a low resolution and scaled up by whole numbers, so the font stays crisp. */
 export class Hud {
@@ -104,6 +104,25 @@ export class Hud {
       this.label(boats, rx, 4, g.room.gateOpen ? C.brass : C.ink);
     }
 
+    // The Bomber's armour, under the score, in the rooms where you fight it.
+    const b = g.room.bomber;
+    if (b && b.mode !== 'flee' && b.maxHp > 0) {
+      const pips = b.maxHp;
+      const w = textWidth('BOMBER') + 10 + pips * 9;
+      const x = Math.round((this.w - w) / 2);
+      this.plaque(x, 19, w, 11);
+      this.text('BOMBER', x + 3, 21, b.hp > 0 ? C.red : C.inkDim);
+      for (let i = 0; i < pips; i++) {
+        const px = x + textWidth('BOMBER') + 8 + i * 9;
+        c.fillStyle = css(C.plaqueEdge);
+        c.fillRect(px, 22, 7, 5);
+        if (i < b.hp) {
+          c.fillStyle = css(b.hurt > 0 && Math.floor(b.hurt / 4) % 2 === 0 ? C.cream : C.red);
+          c.fillRect(px + 1, 23, 5, 3);
+        }
+      }
+    }
+
     // Fuel bar while flying
     const p = g.player;
     if (p.body === 'chopper' && p.deadTicks === 0) {
@@ -135,7 +154,9 @@ export class Hud {
         return a.x < right + 6 && z.x > 0 && a.y < bottom + 6 && z.y > top - 6;
       };
       const room = g.room as { jets?: { alive: boolean; x: number; y: number; w: number; h: number }[]; bombs?: { x: number; y: number; w: number; h: number }[] };
-      const hidden = (room.jets ?? []).some((j) => j.alive && behind(j)) || (room.bombs ?? []).some(behind) || behind(g.player);
+      const bomber = g.room.bomber;
+      const hidden = (room.jets ?? []).some((j) => j.alive && behind(j)) || (room.bombs ?? []).some(behind) || behind(g.player)
+        || (!!bomber && bomber.mode !== 'flee' && (bomber.phase === 'fly' || bomber.phase === 'down') && behind(bomber));
       this.promptAlpha += ((hidden ? 0.2 : 1) - this.promptAlpha) * Math.min(1, dt * 12);
       c.globalAlpha = this.promptAlpha;
       lines.forEach((t, i) => this.label(t, 4, top + i * 14));

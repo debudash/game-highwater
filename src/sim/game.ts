@@ -2,7 +2,7 @@
 // The view (src/view) only reads this state and the per-tick events; it never writes back.
 
 import {
-  Boat, Bomb, Cactus, Charge, Chopper, Crate, DT, Death, Jet, Mine, PLAYER_H, PLAYER_W, Pickup, Points,
+  Boat, Bomb, Bomber, Cactus, Charge, Chopper, Crate, DT, Death, Jet, Mine, PLAYER_H, PLAYER_W, Pickup, Points,
   ROOM_H, ROOM_PX_H, ROOM_PX_W, ROOM_W, Shell, Switch, TILE, Tank, Wind,
 } from './config';
 import type { TickInput } from './input';
@@ -15,7 +15,8 @@ export type EventType =
   | 'jump' | 'land' | 'fire' | 'shellPoof' | 'targetHit' | 'bridgeDown' | 'drop' | 'blast' | 'splash'
   | 'switch' | 'hook' | 'setDown' | 'rescue' | 'gateOpen' | 'death' | 'respawn' | 'cactusGone'
   | 'cactusSprout' | 'mineClear' | 'boatLost' | 'fuelEmpty' | 'roomEnter' | 'loop' | 'floorBreak'
-  | 'jetDown' | 'bombDrop' | 'bombBlast' | 'diveWarn' | 'dive' | 'gust' | 'skip' | 'complete';
+  | 'jetDown' | 'bombDrop' | 'bombBlast' | 'diveWarn' | 'dive' | 'gust' | 'skip' | 'complete'
+  | 'bomberHit' | 'bomberDown';
 
 export interface GameEvent {
   type: EventType;
@@ -23,7 +24,7 @@ export interface GameEvent {
   y: number;
   /** Extra detail: the new body for 'switch', the room index for 'roomEnter', points for scoring events. */
   n?: number;
-  cause?: 'cactus' | 'water' | 'mine' | 'fall' | 'boat' | 'bomb' | 'jet';
+  cause?: 'cactus' | 'water' | 'mine' | 'fall' | 'boat' | 'bomb' | 'jet' | 'bomber';
   /** 'rescue' of a hidden boat (found by touch, not needed for the gate). */
   hidden?: boolean;
 }
@@ -75,6 +76,23 @@ export interface JetState extends Box {
 
 export interface BombState extends Box { vy: number }
 
+/** The Bomber (config Bomber; the finale's three rooms). */
+export interface BomberState extends Box {
+  mode: 'bay' | 'hatch' | 'flee';
+  hp: number;
+  maxHp: number;
+  /** 'wait' offscreen between passes, 'fly' on a pass, 'down' beaten and flying off, 'gone'. */
+  phase: 'wait' | 'fly' | 'down' | 'gone';
+  dir: 1 | -1;
+  timer: number;
+  bombCd: number;
+  /** Ticks left of the flash after a hit, when it can't be hit again. */
+  hurt: number;
+  /** 'hatch' mode: the span (px) it patrols over the lake. */
+  minX: number;
+  maxX: number;
+}
+
 export interface RoomState {
   index: number;
   def: RoomDef;
@@ -92,6 +110,7 @@ export interface RoomState {
   hiddenHome: number;
   jets: JetState[];
   bombs: BombState[];
+  bomber: BomberState | null;
   /** Ticks since the room (re)loaded: jets and gusts run on this clock, so a room replays exactly. */
   t: number;
   spawn: { x: number; y: number };
@@ -143,8 +162,7 @@ export interface Game {
   /** Ids of rooms the player skipped (they score 0; listed on the results card). */
   skipped: string[];
   /**
-   * The run is over: set when you leave the last room of the game (for now the last room of Storm
-   * Front; the Bomber finale will slot in before it). The UI opens the results card on it, and the
+   * The run is over: set when you leave the last room of the game (the Bomber finale's last room). The UI opens the results card on it, and the
    * sim stops ticking. Only the real game list ends; other room lists (tests) loop.
    */
   complete: boolean;
@@ -187,7 +205,7 @@ function loadRoom(defs: RoomDef[], index: number): RoomState {
     }
   }
   const room: RoomState = {
-    index, def, tiles, items, cacti, mines, targets, spawn, jets, bombs: [], t: 0,
+    index, def, tiles, items, cacti, mines, targets, spawn, jets, bombs: [], t: 0, bomber: def.bomber ? newBomber(def.bomber) : null,
     bridgesDown: false, gateOpen: false, boatsHome: 0, hiddenHome: 0,
     boatsTotal: items.filter((i) => i.kind === 'boat' && !i.hidden).length,
     hiddenTotal: items.filter((i) => i.hidden).length,
@@ -206,9 +224,34 @@ function loadRoom(defs: RoomDef[], index: number): RoomState {
   return room;
 }
 
-/** The gate opens when the room's boats are home (and, in a jets room, every jet is down). */
+/**
+ * The gate opens when the room's boats are home (and, in a jets room, every jet is down; in the
+ * Bomber's fighting rooms, the Bomber is beaten).
+ */
 function gateShouldOpen(room: RoomState): boolean {
-  return room.boatsHome >= room.boatsTotal && !(room.def.gateNeedsJets && room.jets.some((j) => j.alive));
+  const b = room.bomber;
+  return room.boatsHome >= room.boatsTotal && !(room.def.gateNeedsJets && room.jets.some((j) => j.alive))
+    && !(b && b.mode !== 'flee' && b.hp > 0);
+}
+
+function newBomber(d: NonNullable<RoomDef['bomber']>): BomberState {
+  const b: BomberState = {
+    mode: d.mode, hp: 0, maxHp: 0, phase: 'wait', dir: 1, timer: Bomber.firstPassTicks, bombCd: 0, hurt: 0,
+    minX: 0, maxX: ROOM_PX_W, x: -Bomber.w - 4, y: (d.row + 1) * TILE - 2 - Bomber.h, w: Bomber.w, h: Bomber.h,
+  };
+  b.hp = b.maxHp = d.mode === 'bay' ? Bomber.hpBay : d.mode === 'hatch' ? Bomber.hpHatch : 0;
+  // Its first pass over the shore comes from the far side, so you see it coming across the sky
+  // before it's over you (you enter on the left).
+  if (d.mode === 'bay') b.dir = -1;
+  if (d.mode === 'hatch') {
+    // Already skimming the lake when you arrive, heading towards you.
+    b.minX = (d.from ?? 0) * TILE;
+    b.maxX = ((d.to ?? ROOM_W - 1) + 1) * TILE - Bomber.w;
+    b.phase = 'fly';
+    b.x = b.maxX;
+    b.dir = -1;
+  }
+  return b;
 }
 
 function openGateIfDone(g: Game): void {
@@ -481,6 +524,7 @@ export function tick(g: Game, inp: TickInput): void {
   if (g.player !== p) return; // left the room this tick
   updateProjectiles(g);
   updateJets(g);
+  updateBomber(g);
   updateBombs(g);
   updateItems(g);
   updateHazards(g);
@@ -694,7 +738,13 @@ function updateProjectiles(g: Game): void {
     s.y += s.vy * DT;
     const t = room.targets.find((t) => !t.hit && overlaps(s, { x: t.col * TILE + 2, y: t.row * TILE + 2, w: 12, h: 12 }));
     const jet = room.jets.find((j) => j.alive && j.phase !== 'wait' && j.phase !== 'warn' && overlaps(s, j));
-    if (jet) {
+    const bomber = room.bomber;
+    if (bomber && bomber.phase === 'fly' && bomber.mode !== 'flee' && overlaps(s, bomber)) {
+      g.shell = null;
+      // Only its bomb bay can be shot: in the lake room its belly is armoured (a charge on the hatch).
+      if (bomber.mode === 'bay' && bomber.hurt === 0) hitBomber(g, bomber);
+      else emit(g, 'shellPoof', cx(s), s.y);
+    } else if (jet) {
       jet.alive = false;
       jet.respawn = room.def.jetRespawnTicks ?? 0;
       g.shell = null;
@@ -732,7 +782,12 @@ function updateProjectiles(g: Game): void {
     const hitCactus = room.cacti.some((k) => k.grown && overlaps(c, cactusBox(k)));
     const hitMine = room.mines.some((m) => m.alive && overlaps(c, m));
     const hitCrate = room.items.some((i) => !i.carried && !i.rescued && overlaps(c, i));
-    if (surface !== null) {
+    const b = room.bomber;
+    if (b && b.phase === 'fly' && b.mode !== 'flee' && overlaps(c, b)) {
+      // A charge on its top hatch (it can't be hit again while it flashes).
+      if (b.hurt === 0) hitBomber(g, b);
+      blast(g, x, b.y);
+    } else if (surface !== null) {
       emit(g, 'splash', x, surface);
       blast(g, x, surface);
     } else if (hitTile || hitCactus || hitMine || hitCrate) {
@@ -860,6 +915,59 @@ function updateJets(g: Game): void {
         j.phase = 'wait';
         j.timer = Jet.diveGapTicks;
         j.y = -j.h - 40;
+      }
+    }
+  }
+}
+
+function hitBomber(g: Game, b: BomberState): void {
+  b.hp--;
+  b.hurt = Bomber.hurtTicks;
+  g.roomPoints += Points.bomberHit;
+  emit(g, 'bomberHit', cx(b), cy(b), { n: Points.bomberHit });
+  if (b.hp <= 0) {
+    b.phase = 'down';
+    g.roomPoints += Points.bomberDown;
+    emit(g, 'bomberDown', cx(b), cy(b), { n: Points.bomberDown });
+    openGateIfDone(g);
+  }
+}
+
+function updateBomber(g: Game): void {
+  const b = g.room.bomber;
+  if (!b || b.phase === 'gone') return;
+  const p = g.player;
+  if (b.hurt > 0) b.hurt--;
+  if (b.bombCd > 0) b.bombCd--;
+  const offscreen = () => (b.dir === 1 && b.x > ROOM_PX_W + 4) || (b.dir === -1 && b.x + b.w < -4);
+  if (b.phase === 'wait') {
+    if (--b.timer <= 0) {
+      b.phase = 'fly';
+      b.x = b.dir === 1 ? -b.w - 4 : ROOM_PX_W + 4;
+    }
+  } else if (b.phase === 'down') {
+    b.x += b.dir * Bomber.fleeSpeed * DT;
+    b.y += 10 * DT;
+    if (offscreen()) b.phase = 'gone';
+  } else if (b.mode === 'hatch') {
+    b.x += b.dir * Bomber.speed * DT;
+    if (b.x <= b.minX) { b.x = b.minX; b.dir = 1; }
+    if (b.x >= b.maxX) { b.x = b.maxX; b.dir = -1; }
+  } else {
+    b.x += b.dir * (b.mode === 'flee' ? Bomber.limpSpeed : Bomber.speed) * DT;
+    const onScreen = b.x > 0 && b.x + b.w < ROOM_PX_W;
+    if (b.mode === 'bay' && p.deadTicks === 0 && onScreen && b.bombCd === 0 && p.y > b.y + b.h && Math.abs(cx(b) - cx(p)) < Bomber.dropWindow) {
+      g.room.bombs.push({ x: cx(b) - Bomb.w / 2, y: b.y + b.h, w: Bomb.w, h: Bomb.h, vy: 0 });
+      b.bombCd = Bomber.bombCooldownTicks;
+      emit(g, 'bombDrop', cx(b), b.y + b.h);
+    }
+    if (offscreen()) {
+      if (b.mode === 'flee') b.phase = 'gone';
+      else {
+        // It turns round offscreen and comes back the other way.
+        b.dir = b.dir === 1 ? -1 : 1;
+        b.phase = 'wait';
+        b.timer = Bomber.passGapTicks;
       }
     }
   }
@@ -1016,5 +1124,7 @@ function updateHazards(g: Game): void {
   if (room.cacti.some((k) => k.grown && overlaps(hit, cactusBox(k)))) return die(g, 'cactus');
   if (room.mines.some((m) => m.alive && overlaps(hit, m))) return die(g, 'mine');
   if (room.jets.some((j) => j.alive && !j.harmless && (j.phase === 'fly' || j.phase === 'dive' || j.phase === 'climb') && overlaps(hit, j))) return die(g, 'jet');
+  const b = room.bomber;
+  if (b && b.phase === 'fly' && b.mode !== 'flee' && overlaps(hit, b)) return die(g, 'bomber');
   if (isWaterAt(room, cx(p), p.y + p.h - 3)) return die(g, 'water');
 }

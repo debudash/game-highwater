@@ -40,6 +40,11 @@ export interface RoomDef {
    * jet's bomb, so shooting the jet first can't leave you stuck.
    */
   jetRespawnTicks?: number;
+  /**
+   * The Bomber's phase in this room (config Bomber): it flies with its bottom 2 px above the bottom of `row`. In 'bay' and
+   * 'hatch' rooms the gate also needs it beaten. 'hatch' patrols between columns `from` and `to`.
+   */
+  bomber?: { mode: 'bay' | 'hatch' | 'flee'; row: number; from?: number; to?: number };
 }
 
 /** The feel-check test rooms (Tuesday build). Room 1 is the plain test room, room 2 the style frame. */

@@ -5,8 +5,8 @@ Guard, a toy tank that fires straight up and folds into a chopper that drops cha
 down. The design is in [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md), and the brief it answers is
 in [docs/ASSIGNMENT.md](docs/ASSIGNMENT.md).
 
-**Status:** the feel-check build. It has two test rooms. The landing page, the stages and the
-Bomber come next.
+**Status:** the whole game is built. A landing page with the story, five stages and the
+three-room Bomber finale (23 rooms), then a dawn ending, the results card and the credits.
 
 ## Play
 

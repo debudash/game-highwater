@@ -6,33 +6,30 @@ github.com/debudash/game-rivergauard, spelled that way; git remote `riverguard`)
 single-lane arcade game becomes a platformer with River Guard's own hero: a tank that fires
 straight up and folds into a chopper.
 
-## Status (2026-11-03, evening)
+## Status (2026-11-04)
 
-- `docs/GAME_DESIGN.md` holds every design decision; its decision log (rows 1–28) lists them. It is
+- `docs/GAME_DESIGN.md` holds every design decision; its decision log (rows 1–32) lists them. It is
   the source of truth for the design; the brief (`docs/ASSIGNMENT.md`) wins over it.
 - The headlines:
   - **Look B** (decision 25): generated 2D pixel art in the style of quizcaster.com, drawn by the
     2D Canvas view in `src/view2d/`. The old 3D diorama is at `?look=3d`, for comparison only.
-  - Five stages plus the Bomber finale, 23 single-screen rooms.
+  - Five stages plus the Bomber finale (F-1 to F-3), 23 single-screen rooms, then the dawn ending,
+    the results card and Debu's credits.
   - The tank fires up and the chopper drops a charge down, both on X; C switches body.
 - **Art:** every image is generated in Gemini (Nano Banana Pro) from `docs/ART_PROMPTS.md`, with
   the tank as the style reference. `python tools/gen_art.py <name>` generates through the API (key
   in `.env`, never committed or put in the image); `python tools/build_art.py` cleans
   `art/source/` into `public/art/`. Don't hand-edit `public/art/`.
-- **Built and committed** (`1423850`): stages 1–5 (20 rooms, each cleared by a bot in
-  `tests/stagebots.ts`), jets, bombs, wind, hidden boats, ghost hint, skip, end of run; landing
-  page, Settings with key rebinding, pause menu, results card, save and Continue; music and sound.
-  179 tests; `node tools/e2e.mjs` passes on the Docker build. Debug flags: `?rooms=test`,
-  `?debug` (`window.highWaterDebug.goto(id)`).
-- **Waiting on Debu:** approval of the three-line intro on the landing page; playing the stages.
-- **Next:**
-  - the Bomber finale (3 rooms, stage slot 5) and the ending scene
-  - polish: a raised drawbridge reads as a pole; the harmless jet looks like the bombing ones; the
-    per-stage time bonus; a `restartRoom` that keeps death counts
-  - GitHub Actions → Pages from `release`
-  - Thursday afternoon: the stranger playtest.
-- Repo: github.com/debudash/game-highwater (public, git remote `origin`). Work on `main`. GitHub
-  Pages publishes only from the `release` branch, and Debu decides when to merge to it.
+- **Built:** the whole game. Every room is cleared by a bot in `tests/stagebots.ts`; the rules in
+  decisions 29 (the tank can't do the chopper's job) and 30 (attacks are fair) are tested.
+  `node tools/e2e.mjs` passes on the Docker build. Debug flags: `?rooms=test`, `?debug`
+  (`window.highWaterDebug.goto(id)`).
+- **Intro approved** by Debu (2026-11-04). Debu wants it ready to submit on 2026-11-04.
+- **Cut for time** (decision 32): the per-stage time bonus, Restart Room keeping the death count,
+  landing-page frame-rate work; the Bomber's belly shot and the castle timer (decision 31).
+- **Hosting (decision 32):** push `main` to GitHub (github.com/debudash/game-highwater, remote
+  `origin`) for now. At the final stage Debu will host the Docker image on Fly.io or Railway and
+  push to the Gauntlet GitLab. No GitHub Pages.
 - Title: **River Guard: High Water** (confirmed by Debu, 2026-11-03). "High Water" is fine as the
   short name in docs.
 - Issues are logged in `docs/ISSUE_LOG.md`.

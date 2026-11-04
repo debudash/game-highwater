@@ -327,6 +327,55 @@ export function bridgeDeckArt(ctx: Ctx, img: HTMLImageElement, x: number, y: num
   }
   ctx.drawImage(img, w - end, 0, end, h, stop, top, end * k, h * k);
   ctx.restore();
+  bridgeChain(ctx, x, y, L, raise);
+}
+
+/**
+ * A winch post at the hinge and a chain from its top to the deck's far end, so a raised bridge reads
+ * as a drawbridge, not a pole, and the chain pays out as it lowers.
+ */
+function bridgeChain(ctx: Ctx, x: number, y: number, L: number, raise: number): void {
+  const a = raise * 1.35;
+  const tipX = x + Math.cos(a) * (L - 10);
+  const tipY = y - Math.sin(a) * (L - 10) + 6;
+  const postX = x - 12;
+  const postTop = y - T * 1.5;
+  // The post: a dark beam with a brass cap and a pulley.
+  ctx.fillStyle = OUTLINE;
+  ctx.fillRect(postX - 9, postTop - 3, 18, y - postTop + 3);
+  ctx.fillStyle = '#7a5232';
+  ctx.fillRect(postX - 6, postTop, 12, y - postTop);
+  ctx.fillStyle = '#c9a24a';
+  ctx.beginPath();
+  ctx.arc(postX, postTop, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = OUTLINE;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  // The chain: links along the line from the pulley to the tip, alternating face-on and edge-on.
+  const dx = tipX - postX;
+  const dy = tipY - postTop;
+  const len = Math.hypot(dx, dy);
+  const n = Math.max(2, Math.floor(len / 11));
+  ctx.save();
+  ctx.translate(postX, postTop);
+  ctx.rotate(Math.atan2(dy, dx));
+  for (let i = 0; i < n; i++) {
+    const px = (i + 0.5) * (len / n);
+    ctx.fillStyle = OUTLINE;
+    if (i % 2 === 0) {
+      ctx.fillRect(px - 7, -4, 14, 8);
+      ctx.fillStyle = '#8d8a86';
+      ctx.fillRect(px - 5, -2, 10, 4);
+      ctx.fillStyle = OUTLINE;
+      ctx.fillRect(px - 2, -1, 4, 2);
+    } else {
+      ctx.fillRect(px - 6, -2, 12, 4);
+      ctx.fillStyle = '#6d6a66';
+      ctx.fillRect(px - 4, -1, 8, 2);
+    }
+  }
+  ctx.restore();
 }
 
 /** Water: a translucent body from the surface down, a moving wavy top, foam and glints. */

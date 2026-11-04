@@ -134,6 +134,36 @@ export const Bomb = {
   killRadius: 15,
 };
 
+/**
+ * The Bomber (the finale, design stage F). One big plane, fought over three rooms:
+ * - 'bay': it crosses high over the shore again and again, bombing you when it's over you; shoot
+ *   its belly from below.
+ * - 'hatch': it skims back and forth low over the lake; its belly is armoured, so drop charges on
+ *   its top hatch from the chopper.
+ * - 'flee': its last engine burns and it limps across overhead, out of reach (the room's dive
+ *   jets and the shot-down boat are the challenge).
+ * Its bombs are ordinary bombs (Bomb), so the HW-002 fairness rule covers them too.
+ */
+export const Bomber = {
+  w: 44,
+  h: 18,
+  speed: 46, // px/s
+  /** Pause offscreen between passes in 'bay' mode (it comes back the other way). */
+  passGapTicks: ms(1300),
+  firstPassTicks: ms(1200),
+  /** Bombs when its centre is this close to yours (px), and no more often than this. */
+  dropWindow: 10,
+  bombCooldownTicks: ms(1300),
+  /** After a hit it flashes and can't be hit again for this long. */
+  hurtTicks: ms(900),
+  hpBay: 3,
+  hpHatch: 3,
+  /** Once beaten it trails smoke and flies off at this speed, sinking slowly. */
+  fleeSpeed: 70,
+  /** 'flee' mode: the burning crossing's speed. */
+  limpSpeed: 30,
+};
+
 /** Stage 5 gusts: a room's wind blows in timed gusts that push the chopper and the charge. */
 export const Wind = {
   /** Ticks to ramp a gust up and down. */
@@ -144,7 +174,7 @@ export const Wind = {
 
 export const Death = { respawnTicks: ms(400) };
 
-export const Points = { jet: 100, mine: 200, boat: 500 };
+export const Points = { jet: 100, mine: 200, boat: 500, bomberHit: 250, bomberDown: 1000 };
 
 /** Ghost hint and skip offer (design Q2). */
 export const Help = { hintDeaths: 5, skipDeaths: 10 };
