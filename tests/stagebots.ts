@@ -229,11 +229,11 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
     waitFor((g) => g.room.tiles[7][13] === '.'), sinkUntil(14 * TILE, (g) => g.player.onGround), flyRightUntil(132),
   ),
   '4-3': () => script(become('chopper'), blastMines(60), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), ...refuelAt(col(17)), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), dodging(flyRightUntil(86))),
-  '4-4': () => script(become('chopper'), dodging(hookBoat()), dodging(deliver(col(17) + 4, 7 * TILE, 50)), dodging(flyRightUntil(82))),
+  '4-4': () => script(become('chopper'), dodging(hookBoat()), dodging(deliver(col(17) + 4, 7 * TILE, 70)), dodging(flyRightUntil(82))),
   '5-1': () => script(become('chopper'), dodging(flyRightUntil(50))),
   '5-2': () => script(become('tank'), shootAllJets(col(2)), skiesClear(), become('chopper'), dodging(flyRightUntil(86))),
-  '5-3': () => script(become('chopper'), flyTo(col(1), 30), dodging(blastMines(60)), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), ...refuelAt(col(17)).map((st) => dodging(st)), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), dodging(flyRightUntil(86))),
-  '5-4': () => script(become('chopper'), dodging(hookBoat()), dodging(deliver(col(17) + 8, 7 * TILE, 50)), dodging(flyRightUntil(86))),
+  '5-3': () => script(become('chopper'), dodging(hookBoat()), dodging(deliver(col(17) + 8, 7 * TILE, 86)), ...refuelAt(col(17) + 8).map((st) => dodging(st)), dodging(hookBoat()), dodging(deliver(col(17) + 8, 7 * TILE, 86)), dodging(flyRightUntil(86))),
+  '5-4': () => script(become('chopper'), dodging(flyTo(col(14), 50)), dodging(hookBoat()), dodging(deliver(col(7) + 8, 6 * TILE, 50)), ...refuelAt(col(7) + 8).map((st) => dodging(st)), dodging(flyRightUntil(86))),
   'F-1': () => script(become('tank'), fightBay(col(9)), driveRightUntil(never)),
   'F-2': () => script(become('chopper'), dodging(fightHatch(col(9), 50)), dodging(flyRightUntil(86))),
   'F-3': () => script(
@@ -326,7 +326,7 @@ export const HIDDEN_BOTS: Record<string, () => Policy> = {
   // Wait on the block for a dive jet to lock on, then leap to the ledge as it dives.
   '2-3': () => script(driveTo(col(6) + 8), waitFor((g) => g.room.jets.some((j) => j.phase === 'warn' && Math.abs(j.aimX - cx(g)) < 10)), leap(-1), driveTo(col(2))),
   '3-4': () => script(become('chopper'), flyTo(col(4), 6), flyTo(col(1), 6), sinkUntil(col(1), (g) => g.room.hiddenHome > 0)),
-  '4-4': () => script(become('chopper'), flyTo(col(10), 4), sinkUntil(col(10), (g) => g.room.hiddenHome > 0)),
+  '4-4': () => script(become('chopper'), flyTo(col(2), 4), flyTo(col(10), 4), sinkUntil(col(10), (g) => g.room.hiddenHome > 0)),
   '5-4': () => script(become('chopper'), flyTo(col(11), 4), sinkUntil(col(11), (g) => g.room.hiddenHome > 0)),
 };
 
@@ -442,7 +442,14 @@ function blastMines(y: number): Step {
 
 /** Chopper: land at x (on a dock or bank) and wait there until the tank is full. */
 function refuelAt(x: number): Step[] {
-  return [landOn(x, 70), waitFor((g) => g.player.fuel >= Chopper.fuelTicks)];
+  // One step, so if a dodge lifts it off the pad it lands again before waiting on.
+  const land = landOn(x, 70);
+  return [(g, k) => {
+    const p = g.player;
+    if (p.onGround && Math.abs(cx(g) - x) <= 6) return p.fuel >= Chopper.fuelTicks;
+    land(g, k);
+    return false;
+  }];
 }
 
 

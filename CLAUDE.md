@@ -8,14 +8,14 @@ straight up and folds into a chopper.
 
 ## Status (2026-11-04)
 
-- `docs/GAME_DESIGN.md` holds every design decision; its decision log (rows 1–34) lists them. It is
+- `docs/GAME_DESIGN.md` holds every design decision; its decision log (rows 1–35) lists them. It is
   the source of truth for the design; the brief (`docs/ASSIGNMENT.md`) wins over it.
 - The headlines:
   - **Look B** (decision 25): generated 2D pixel art in the style of quizcaster.com, drawn by the
     2D Canvas view in `src/view2d/`. The old 3D diorama is at `?look=3d`, for comparison only.
   - Five stages plus the Bomber finale (F-1 to F-3), 23 single-screen rooms, then the dawn ending,
     the results card and Debu's credits.
-  - The tank fires up and the chopper drops a charge down, both on X; C switches body.
+  - The tank fires up and the chopper drops a charge down, both on X; Down or S sets a load down; C switches body.
 - **Art:** every image is generated in Gemini (Nano Banana Pro) from `docs/ART_PROMPTS.md`, with
   the tank as the style reference. `python tools/gen_art.py <name>` generates through the API (key
   in `.env`, never committed or put in the image); `python tools/build_art.py` cleans

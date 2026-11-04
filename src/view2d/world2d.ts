@@ -83,6 +83,16 @@ export class World2D {
   private time = 0;
   private squash = 0;
   private squashV = 0;
+  /** Facing, eased from side to side, so a turn swings round instead of snapping. */
+  private faceAnim = 1;
+  /** The tank's lean (radians): back as it speeds up, forward as it brakes, nose up or down in a jump. */
+  private lean = 0;
+  private lastVx = 0;
+  /** The cannon's kick after a shot, 1 falling to 0. */
+  private recoil = 0;
+  /** Timers for dust from the tracks and from the rotor over the ground. */
+  private trackT = 0;
+  private groundWashT = 0;
   private bodyShown: 'tank' | 'chopper' = 'tank';
   private rotorPhase = 0;
   private washT = 0;
@@ -198,7 +208,29 @@ export class World2D {
     if (p.body !== this.bodyShown && p.foldTicks === 0) this.bodyShown = p.body;
     const thrust = p.body === 'chopper' && p.fuel > 0 && p.vy < 20;
     this.rotorPhase += dt * (thrust ? 34 : p.body === 'chopper' ? 22 : 3);
+    // Turning, leaning and the cannon's kick.
+    this.faceAnim += (p.facing - this.faceAnim) * Math.min(1, dt * 14);
+    const accel = dt > 0 ? (p.vx - this.lastVx) / dt : 0;
+    this.lastVx = p.vx;
+    const leanTo = p.body !== 'tank' ? 0 : p.onGround
+      ? Math.max(-0.12, Math.min(0.12, -accel * 0.00012 * Math.sign(p.facing)))
+      : Math.max(-0.2, Math.min(0.2, p.vy * 0.0005));
+    this.lean += (leanTo - this.lean) * Math.min(1, dt * 10);
+    this.recoil = Math.max(0, this.recoil - dt * 6);
+    // Dust from the tracks at speed.
+    this.trackT -= dt;
+    if (p.body === 'tank' && p.onGround && p.deadTicks === 0 && Math.abs(p.vx) > 60 && this.trackT <= 0) {
+      this.trackT = 0.09;
+      this.fx.dust(rv.x0 + (p.x + p.w / 2 - Math.sign(p.vx) * 6) * S, (p.y + p.h) * S, 1);
+    }
     if (p.body === 'chopper' && p.deadTicks === 0) {
+      // Rotor wash kicks up dust from the ground below when flying low.
+      this.groundWashT -= dt;
+      const gy = groundBelow2D(g.room, p.x + p.w / 2, p.y + p.h);
+      if (gy !== null && gy - (p.y + p.h) < 36 && gy - (p.y + p.h) > 1 && this.groundWashT <= 0) {
+        this.groundWashT = 0.1;
+        this.fx.dust(rv.x0 + (p.x + p.w / 2 + (Math.random() - 0.5) * 16) * S, gy * S, 1);
+      }
       this.washT -= dt;
       const below = waterBelow(g.room, p.x + p.w / 2, p.y + p.h);
       if (below !== null && below - (p.y + p.h) < 40 && this.washT <= 0) {
@@ -295,7 +327,7 @@ export class World2D {
           if (k > 0.7) this.shakeBy(0.35);
           break;
         }
-        case 'fire': this.squash = 0.1; this.fx.sparks(x, y - 60); break;
+        case 'fire': this.squash = 0.1; this.recoil = 1; this.fx.sparks(x, y - 60); break;
         case 'shellPoof': case 'targetHit': this.fx.chips(x, y, [C.wood, C.cream, C.red], 8); break;
         case 'bridgeDown': this.shakeBy(0.25); break;
         case 'blast': this.fx.chips(x, y, [C.woodDark, C.brass, C.red, C.bomb], 16); this.fx.sparks(x, y); this.shakeBy(0.45); break;
@@ -654,17 +686,29 @@ export class World2D {
       ctx.save();
       if (body === 'tank') {
         const rumble = p.onGround && Math.abs(p.vx) > 10 ? -Math.abs(Math.sin(t * 28)) * 2 : 0;
-        ctx.translate(ax, ay + rumble);
-        const sx = live ? (1 + sq * 0.8 - stretch * 0.5) * size : size;
-        const sy = live ? (1 - sq + stretch) * Math.max(0.05, size) : size;
-        ctx.scale(p.facing * sx, sy);
+        const kick = live ? this.recoil : 0;
+        ctx.translate(ax, ay + rumble + kick * 4);
+        if (live) ctx.rotate(this.lean);
+        const sx = live ? (1 + sq * 0.8 - stretch * 0.5 + kick * 0.04) * size : size;
+        const sy = live ? (1 - sq + stretch - kick * 0.08) * Math.max(0.05, size) : size;
+        ctx.scale((live ? turnScale(this.faceAnim) : p.facing) * sx, sy);
         this.sprite('tank', () => P.blob(ctx, 110, 90, C.olive));
+        // Muzzle flash at the top of the barrel, just after a shot.
+        if (kick > 0.6) {
+          const f = (kick - 0.6) / 0.4;
+          const glow = ctx.createRadialGradient(0, -100, 2, 0, -100, 34 * f);
+          glow.addColorStop(0, 'rgba(255,245,200,0.95)');
+          glow.addColorStop(0.5, 'rgba(255,170,60,0.7)');
+          glow.addColorStop(1, 'rgba(255,120,40,0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath(); ctx.arc(0, -100, 34 * f, 0, Math.PI * 2); ctx.fill();
+        }
       } else {
         ctx.translate(ax, ay + Math.sin(t * 6) * 2);
         ctx.rotate((p.vx / Chopper.maxSpeed) * 0.22);
         const sx = live ? (1 + sq * 0.5) * size : size;
         const sy = live ? (1 - sq * 0.5) * Math.max(0.05, size) : size;
-        ctx.scale(p.facing * sx, sy);
+        ctx.scale((live ? turnScale(this.faceAnim) : p.facing) * sx, sy);
         this.drawChopper();
       }
       ctx.restore();
@@ -751,6 +795,17 @@ function waterRuns(room: RoomState): { c0: number; len: number; row: number; bot
   return runs;
 }
 
+/** Top of solid ground right below (sim px), or null if water or nothing comes first. */
+function groundBelow2D(room: RoomState, x: number, y: number): number | null {
+  const col = Math.floor(x / TILE);
+  for (let row = Math.max(0, Math.floor(y / TILE)); row < ROOM_H; row++) {
+    const ch = room.tiles[row]?.[col];
+    if (ch === '~') return null;
+    if (ch === '#' || ch === 'H' || ch === 'x' || ch === 'W') return row * TILE;
+  }
+  return null;
+}
+
 function waterBelow(room: RoomState, x: number, y: number): number | null {
   const col = Math.floor(x / TILE);
   for (let row = Math.max(0, Math.floor(y / TILE)); row < ROOM_H; row++) {
@@ -759,4 +814,10 @@ function waterBelow(room: RoomState, x: number, y: number): number | null {
     if (ch && ch !== '.') return null;
   }
   return null;
+}
+
+/** The horizontal scale for a body mid-turn: it narrows as it swings round, never to nothing. */
+function turnScale(face: number): number {
+  const m = Math.max(0.25, Math.abs(face));
+  return face < 0 ? -m : m;
 }
