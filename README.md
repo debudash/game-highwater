@@ -10,6 +10,8 @@ three-room Bomber finale (23 rooms), then a dawn ending, the results card and th
 
 ## Play
 
+Play it in the browser at **https://game-highwater.fly.dev/**. To run it locally:
+
 ```
 docker compose up --build -d     # serves on http://localhost:8138
 ```

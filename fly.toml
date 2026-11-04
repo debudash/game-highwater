@@ -1,0 +1,27 @@
+# Fly.io: the game's Docker image (tests, Vite build, then nginx serving the static files), on one
+# small always-on machine in Ashburn, Virginia (iad), so the link never waits on a cold start.
+# Deploy: `fly deploy` from the repo root (decision 32 in docs/GAME_DESIGN.md).
+
+app = "game-highwater"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

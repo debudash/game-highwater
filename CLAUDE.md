@@ -28,9 +28,10 @@ straight up and folds into a chopper.
 - **Intro approved** by Debu (2026-11-04). Debu wants it ready to submit on 2026-11-04.
 - **Cut for time** (decision 32): the per-stage time bonus, Restart Room keeping the death count,
   landing-page frame-rate work; the Bomber's belly shot and the castle timer (decision 31).
-- **Hosting (decision 32):** push `main` to GitHub (github.com/debudash/game-highwater, remote
-  `origin`) for now. At the final stage Debu will host the Docker image on Fly.io or Railway and
-  push to the Gauntlet GitLab. No GitHub Pages.
+- **Hosting (decision 32):** live at **https://game-highwater.fly.dev/** (Fly app `game-highwater`,
+  one always-on machine in iad; `fly deploy` from the repo root, config in `fly.toml`). Redeploy
+  after each change Debu wants live. `main` is pushed to GitHub (github.com/debudash/game-highwater,
+  remote `origin`); the Gauntlet GitLab push comes at the final stage. No GitHub Pages.
 - Title: **River Guard: High Water** (confirmed by Debu, 2026-11-03). "High Water" is fine as the
   short name in docs.
 - Issues are logged in `docs/ISSUE_LOG.md`.

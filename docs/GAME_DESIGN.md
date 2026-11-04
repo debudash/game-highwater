@@ -352,9 +352,9 @@ pixel-rendered 3D prototype. This section supersedes the 3D notes kept below for
 
 **Infrastructure:**
 - **Local serving:** Docker on port **8138**. River Guard keeps 8137.
-- **Public link (decision 32):** the game is hosted from its Docker image on Fly.io or Railway,
-  and the code goes to the Gauntlet GitLab, both at the final stage. Until then `main` is pushed to
-  GitHub. (This replaces the earlier plan of GitHub Pages from a `release` branch.) The Vite `base`
+- **Public link (decision 32):** https://game-highwater.fly.dev/, the Docker image on Fly.io
+  (`fly.toml`, `fly deploy`). The code goes to the Gauntlet GitLab at the final stage; until then
+  `main` is pushed to GitHub. (This replaces the earlier plan of GitHub Pages from a `release` branch.) The Vite `base`
   is `./`, so the build serves from any path.
 - **River Guard's specs:** `river-guard-*.md` moves to `docs/river-guard/` as v1 reference.
 - **Solvability:** every room has a recorded solution that runs as a test. The same recording feeds
@@ -430,7 +430,7 @@ Checked against [ASSIGNMENT.md](ASSIGNMENT.md), the brief that is the requiremen
 | Finish the details | One font, a fixed HUD layout, animation on every action, a mixed sound level, feedback on every hit and pickup |
 | All assets generated | Every image generated in Gemini from the prompts in ART_PROMPTS.md and cleaned by script; font, music and sound generated in code; the README says how |
 | Playable by someone else | An intro and controls on the landing page, rebindable keys, controls on the pause screen, safe teaching rooms, key prompts, a stranger playtest |
-| Browser link | The Docker image hosted on Fly.io or Railway (decision 32) |
+| Browser link | https://game-highwater.fly.dev/ (the Docker image on Fly.io, decision 32) |
 
 ## Decision log
 
