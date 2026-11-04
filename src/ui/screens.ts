@@ -200,7 +200,8 @@ export class Ui {
     const rows: [string, string][] = [
       ['MOVE', `${keys('left', 1)} ${keys('right', 1)}`],
       ['JUMP / FLY', keys('jump')],
-      ['ACTION', keys('action')],
+      ['FIRE / CHARGE', keys('action')],
+      ['SET DOWN', keys('drop')],
       ['SWITCH', keys('switch')],
       ['PAUSE / MUTE', 'ESC  M'],
     ];

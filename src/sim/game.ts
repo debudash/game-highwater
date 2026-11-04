@@ -599,16 +599,16 @@ function updatePlayer(g: Game, inp: TickInput): void {
     if (p.vy > maxDown) p.vy = Math.max(maxDown, p.vy - 900 * DT);
   }
 
-  // Action: the tank fires up; the chopper drops a charge down, or sets down what it carries.
+  // Action: the tank fires up; the chopper drops a charge down (not while it carries something).
+  // Set Down has its own key (a playtester: two jobs on X "could trip you up").
+  if (inp.press.drop && p.body === 'chopper' && p.carrying) release(g, p.carrying);
   if (inp.press.action) {
     if (p.body === 'tank') {
       if (!g.shell) {
         g.shell = { x: cx(p) - Shell.w / 2, y: p.y - Shell.h, w: Shell.w, h: Shell.h, vy: -Shell.speed };
         emit(g, 'fire', cx(p), p.y);
       }
-    } else if (p.carrying) {
-      release(g, p.carrying);
-    } else if (!g.charge) {
+    } else if (!p.carrying && !g.charge) {
       g.charge = { x: cx(p) - Charge.w / 2, y: p.y + p.h, w: Charge.w, h: Charge.h, vy: Charge.startSpeed + Math.max(0, p.vy) };
       emit(g, 'drop', cx(p), p.y + p.h);
     }

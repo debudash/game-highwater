@@ -4,8 +4,9 @@
 
 import { TICK_HZ } from './config';
 
-export type Button = 'left' | 'right' | 'jump' | 'action' | 'switch';
-export const BUTTONS: readonly Button[] = ['left', 'right', 'jump', 'action', 'switch'];
+/** 'drop' sets down what the chopper carries (its own key, so it never shares X with the charge). */
+export type Button = 'left' | 'right' | 'jump' | 'action' | 'switch' | 'drop';
+export const BUTTONS: readonly Button[] = ['left', 'right', 'jump', 'action', 'switch', 'drop'];
 
 export type ButtonFlags = Record<Button, boolean>;
 
@@ -15,7 +16,7 @@ export interface TickInput {
   held: ButtonFlags;
 }
 
-export const noButtons = (): ButtonFlags => ({ left: false, right: false, jump: false, action: false, switch: false });
+export const noButtons = (): ButtonFlags => ({ left: false, right: false, jump: false, action: false, switch: false, drop: false });
 export const idleInput = (): TickInput => ({ press: noButtons(), held: noButtons() });
 
 const STEP_MS = 1000 / TICK_HZ;
@@ -52,7 +53,7 @@ export class InputCollector {
   private held = noButtons();
   /** Per button, how many of its bound keys are down (two keys can share an action). */
   private down: Record<Button, Set<string>> = {
-    left: new Set(), right: new Set(), jump: new Set(), action: new Set(), switch: new Set(),
+    left: new Set(), right: new Set(), jump: new Set(), action: new Set(), switch: new Set(), drop: new Set(),
   };
 
   keyDown(b: Button, key: string): void {

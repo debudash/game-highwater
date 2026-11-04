@@ -221,7 +221,7 @@ const FLOODPLAIN: StageDef = {
       id: '3-3', name: 'FIRST RESCUE',
       prompts: [
         { col: 1, row: 2, text: 'FLY LOW OVER THE BOAT TO HOOK IT' },
-        { col: 9, row: 3, text: 'SET IT ON THE DOCK: {action}' },
+        { col: 9, row: 3, text: 'SET IT ON THE DOCK: {drop}' },
       ],
       rows: [
         'J..................W',
@@ -428,9 +428,10 @@ const BOMBER: StageDef = {
       prompts: [
         { col: 1, row: 2, text: 'BRING DOWN THE BOMBER' },
         { col: 1, row: 3, text: 'TANK: {action} SHOOTS ITS BOMB BAY' },
+        { col: 1, row: 4, text: 'ITS ESCORTS ATTACK TOO' },
       ],
       rows: [
-        '..................jW',
+        '......D...........jW',
         '...................W',
         '...................W',
         '...................W',
@@ -455,7 +456,7 @@ const BOMBER: StageDef = {
       // A dive jet guards it (Debu: "what is the adventure if no one is attacking you"), so
       // you bomb the hatch between dodges; they level out above the Bomber, not through it.
       rows: [
-        'J...D..............W',
+        '....D..............W',
         '...................W',
         '...................W',
         '...................W',
@@ -476,7 +477,7 @@ const BOMBER: StageDef = {
         { col: 1, row: 4, text: 'THEN RUN FOR THE CASTLE' },
       ],
       rows: [
-        'J.D........D.......W',
+        '..D........D.......W',
         'j..................W',
         '...................W',
         '...................W',

@@ -74,7 +74,7 @@ describe('HW-002: bombs give a human time to get clear', () => {
     it(`HW-002: in F-1, a player who reacts after 350 ms to each Bomber bomb and drives ${away} survives two passes`, () => {
       // The Bomber's bombs on their own (the room's cross jet is covered by the check above).
       const f1 = GAME_ROOMS.find((r) => r.id === 'F-1')!;
-      const g = game({ ...f1, rows: f1.rows.map((r) => r.replace(/[Jj]/g, '.')) });
+      const g = game({ ...f1, rows: f1.rows.map((r) => r.replace(/[JjD]/g, '.')) });
       let dropped = -1;
       let dir = away;
       for (let i = 0; i < 1400 && g.deaths === 0; i++) {

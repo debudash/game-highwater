@@ -164,17 +164,17 @@ export const Bomb = {
 export const Bomber = {
   w: 44,
   h: 18,
-  speed: 46, // px/s
+  speed: 58, // px/s
   /** Pause offscreen between passes in 'bay' mode (it comes back the other way). */
-  passGapTicks: ms(1300),
+  passGapTicks: ms(900),
   firstPassTicks: ms(1200),
   /** Bombs when its centre is this close to yours (px), and no more often than this. */
   dropWindow: 10,
-  bombCooldownTicks: ms(1300),
+  bombCooldownTicks: ms(900),
   /** After a hit it flashes and can't be hit again for this long. */
   hurtTicks: ms(900),
-  hpBay: 4,
-  hpHatch: 3,
+  hpBay: 6,
+  hpHatch: 4,
   /** Once beaten it trails smoke and flies off at this speed, sinking slowly. */
   fleeSpeed: 70,
   /** 'flee' mode: the burning crossing's speed. */

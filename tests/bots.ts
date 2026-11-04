@@ -65,6 +65,8 @@ export function room2(): Policy {
     };
     if (stage === 0 && p.body === 'tank') return { held: [], press: ['switch'] };
     if (stage === 0) {
+      // It can hook the crate on take-off; set it down (Set Down), since a charge can't drop while carrying.
+      if (p.carrying) return { held: ['jump'], press: ['drop'] };
       // Over the pillar: blast the cactus first so it is a safe refuel stop later.
       fly(11 * TILE + 8, 2 * TILE);
       if (Math.abs(x - (11 * TILE + 8)) < 3 && !g.charge && cactus.grown) return { held: keys, press: ['action'] };
@@ -78,7 +80,7 @@ export function room2(): Policy {
       if (Math.abs(x - (17 * TILE + 8)) < 4) stage = 3;
     } else if (stage === 3) {
       if (p.y < 4 * TILE) { keys.length = 0; } else keys.push('jump');
-      if (Math.abs(p.vx) < 5 && p.carrying) return { held: keys, press: ['action'] };
+      if (Math.abs(p.vx) < 5 && p.carrying) return { held: keys, press: ['drop'] };
       if (!p.carrying) stage = 4;
     } else {
       // Land on the dock and drive out through the open gate.

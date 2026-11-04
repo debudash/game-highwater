@@ -39,7 +39,7 @@ await page.waitForTimeout(200);
 // Install the in-page bot.
 await page.evaluate(() => {
   const T = 16;
-  const KEY = { left: 'ArrowLeft', right: 'ArrowRight', jump: 'KeyZ', action: 'KeyX', switch: 'KeyC' };
+  const KEY = { left: 'ArrowLeft', right: 'ArrowRight', jump: 'KeyZ', action: 'KeyX', switch: 'KeyC', drop: 'ArrowDown' };
   const solid = (room, c, r) => {
     if (c < 0) return true;
     if (c >= 20 || r < 0 || r >= 10) return false;
@@ -80,6 +80,7 @@ await page.evaluate(() => {
     };
     if (stage === 0 && p.body === 'tank') return { held: [], press: ['switch'] };
     if (stage === 0) {
+      if (p.carrying) return { held: ['jump'], press: ['drop'] };
       fly(11 * T + 8, 2 * T);
       if (Math.abs(x - (11 * T + 8)) < 3 && !g.charge && cactus.grown) return { held: keys, press: ['action'] };
       if (!cactus.grown) stage = 1;
@@ -91,7 +92,7 @@ await page.evaluate(() => {
       if (Math.abs(x - (17 * T + 8)) < 4) stage = 3;
     } else if (stage === 3) {
       if (p.y >= 4 * T) keys.push('jump');
-      if (Math.abs(p.vx) < 5 && p.carrying) return { held: keys, press: ['action'] };
+      if (Math.abs(p.vx) < 5 && p.carrying) return { held: keys, press: ['drop'] };
       if (!p.carrying) stage = 4;
     } else {
       if (!p.onGround) return { held: [] };

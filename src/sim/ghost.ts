@@ -6,12 +6,12 @@
 import { BUTTONS, TickInput, noButtons } from './input';
 import { GHOSTS } from './ghosts';
 
-/** One tick's input as a number: bits 0–4 held, bits 5–9 pressed (in BUTTONS order). */
+/** One tick's input as a number: the low bits held, the next BUTTONS.length bits pressed (in BUTTONS order). */
 export function inputMask(inp: TickInput): number {
   let m = 0;
   BUTTONS.forEach((b, i) => {
     if (inp.held[b]) m |= 1 << i;
-    if (inp.press[b]) m |= 1 << (i + 5);
+    if (inp.press[b]) m |= 1 << (i + BUTTONS.length);
   });
   return m;
 }
@@ -21,7 +21,7 @@ export function maskInput(m: number): TickInput {
   const press = noButtons();
   BUTTONS.forEach((b, i) => {
     held[b] = (m & (1 << i)) !== 0;
-    press[b] = (m & (1 << (i + 5))) !== 0;
+    press[b] = (m & (1 << (i + BUTTONS.length))) !== 0;
   });
   return { held, press };
 }

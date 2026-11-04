@@ -12,6 +12,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   jump: ['KeyZ', 'Space', 'ArrowUp'],
   action: ['KeyX'],
   switch: ['KeyC', 'ShiftLeft', 'ShiftRight'],
+  drop: ['ArrowDown', 'KeyS'],
 };
 
 /** Esc always pauses and can never be rebound, so nobody can lock themselves out. */

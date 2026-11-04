@@ -79,7 +79,7 @@ export const TEST_ROOMS: RoomDef[] = [
     prompts: [
       { col: 1, row: 2, text: '{switch} SWITCH' },
       { col: 5, row: 1, text: 'FLY LOW OVER IT TO HOOK' },
-      { col: 12, row: 2, text: '{action} DROP / SET DOWN' },
+      { col: 12, row: 2, text: '{action} CHARGE   {drop} SET DOWN' },
     ],
     rows: [
       '...................W',

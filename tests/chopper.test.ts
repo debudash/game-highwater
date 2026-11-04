@@ -100,7 +100,7 @@ describe('carrying', () => {
   it('HW-001: the crate you just set down is not re-hooked, so you can land on it to refuel', () => {
     const g = flyOverCrate();
     // Set it down where we are, then sink onto it.
-    press(g, 'action');
+    press(g, 'drop');
     expect(g.player.carrying).toBeNull();
     hold(g, 120);
     expect(g.player.onGround).toBe(true);
@@ -109,7 +109,7 @@ describe('carrying', () => {
 
   it('a crate you set down can be hooked again once you have flown away from it', () => {
     const g = flyOverCrate();
-    press(g, 'action');
+    press(g, 'drop');
     expect(g.player.lastDropped).not.toBeNull();
     // Fly on to the right, then come back over it from the other side.
     for (let i = 0; i < 40; i++) tick(g, input(['right', 'jump']));
@@ -124,10 +124,24 @@ describe('carrying', () => {
     expect(g.player.carrying?.kind).toBe('crate');
   });
 
-  it('Action sets the load down instead of dropping a charge', () => {
+  // Debu's tester: "I'd consider separating the command to drop a carried ship and the command to
+  // drop a bomb. Right now, they're both X."
+  it('Set Down (its own key) sets the load down; Action while carrying does nothing', () => {
     const g = flyOverCrate();
     press(g, 'action');
+    expect(g.player.carrying?.kind).toBe('crate');
+    expect(g.charge).toBeNull();
+    press(g, 'drop');
     expect(g.player.carrying).toBeNull();
+    expect(g.charge).toBeNull();
+  });
+
+  it('Set Down with nothing carried does nothing', () => {
+    const g = game();
+    settle(g);
+    press(g, 'switch');
+    hold(g, 40, ['jump']);
+    press(g, 'drop');
     expect(g.charge).toBeNull();
   });
 

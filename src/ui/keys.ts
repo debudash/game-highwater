@@ -10,6 +10,7 @@ export const ACTIONS: { action: Button; label: string }[] = [
   { action: 'jump', label: 'JUMP / FLY' },
   { action: 'action', label: 'ACTION' },
   { action: 'switch', label: 'SWITCH' },
+  { action: 'drop', label: 'SET DOWN' },
 ];
 
 export type Row =

@@ -2,7 +2,7 @@
 // into the chopper, fly there, hook, set down...). Each step reads the sim the way a player reads
 // the screen. tests/solutions.test.ts runs them all, and tests/ghosts.test.ts records their inputs
 // into src/sim/ghosts.json for the ghost hint.
-import { Chopper, Jet, PLAYER_W, Shell, TILE } from '../src/sim/config';
+import { Bomber, Chopper, Jet, PLAYER_W, Shell, TILE } from '../src/sim/config';
 import { Game, isSolidTile, Item } from '../src/sim/game';
 import { Button } from '../src/sim/input';
 import type { Policy } from './bots';
@@ -179,7 +179,7 @@ export const deliver = (x: number, surfaceY: number, cruise: number): Step => {
     // Lower it: hold x, sink until its bottom is a few px above the dock, then let go.
     const bottom = it.y + it.h;
     flyKeys(g, k, x, surfaceY - it.h - Chopper.hangGap - p.h - 3, 2);
-    if (bottom >= surfaceY - 5 && Math.abs(p.vx) < 10) k.press.push('action');
+    if (bottom >= surfaceY - 5 && Math.abs(p.vx) < 10) k.press.push('drop');
     return false;
   };
 };
@@ -239,7 +239,7 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
   'F-3': () => script(
     become('chopper'), dodging(hookBoat()), dodging(deliver(col(2), 7 * TILE, 50)),
     // The run for the castle: no waiting for dives to finish, or the fuel runs out over the lake.
-    sinkUntil(col(2), (g) => g.player.onGround), waitFor((g) => g.player.fuel >= Chopper.fuelTicks),
+    dodging(landOn(col(2), 80)), dodging(waitFor((g) => g.player.fuel >= Chopper.fuelTicks)),
     dodging(flyTo(col(10), 80, 3)), dodging(landOn(col(10), 80)), waitFor((g) => g.player.fuel >= Chopper.fuelTicks),
     dodging(flyRightUntil(86)),
   ),
@@ -250,18 +250,30 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
  * drive away from it against the Bomber's heading (so it doesn't follow), then come back.
  */
 function fightBay(home: number): Step {
+  const jets = shootAllJets(home);
   return (g, k) => {
     const b = g.room.bomber!;
     if (b.hp <= 0) return true;
     const x = cx(g);
     const bomb = g.room.bombs.find((bm) => Math.abs(bm.x + bm.w / 2 - x) < 34);
     if (bomb) {
-      const dir: 1 | -1 = b.dir === 1 ? -1 : 1;
+      let dir: 1 | -1 = b.dir === 1 ? -1 : 1;
+      if (x < 24) dir = 1;
+      if (x > 280) dir = -1;
       k.held.push(dir === 1 ? 'right' : 'left');
       return false;
     }
-    const ahead = (b.x + b.w / 2 - x) * -b.dir; // > 0 while it's still coming
-    if (b.phase === 'fly' && b.hurt === 0 && !g.shell && ahead > -4 && ahead < 26) k.press.push('action');
+    // Shoot the Bomber when the shell will meet its belly; otherwise deal with its escorts.
+    const t = (g.player.y - (b.y + b.h / 2)) / Shell.speed;
+    const meet = b.x + b.w / 2 + b.dir * Bomber.speed * t;
+    if (b.phase === 'fly' && b.hurt === 0 && !g.shell && g.player.onGround && Math.abs(meet - x) < 12) {
+      k.press.push('action');
+      return false;
+    }
+    if (g.room.jets.some((j) => j.alive)) {
+      jets(g, k);
+      return false;
+    }
     driveTo(home, 4)(g, k);
     return false;
   };
@@ -289,7 +301,7 @@ function fightHatch(spot: number, y: number): Step {
     }
     if (p.fuel < Chopper.fuelTicks * 0.5) { refuel = true; return false; }
     flyKeys(g, k, spot, y, 3);
-    const lead = (b.x + b.w / 2 + b.dir * 10 - cx(g));
+    const lead = (b.x + b.w / 2 + b.dir * Bomber.speed * 0.22 - cx(g));
     if (b.phase === 'fly' && b.hurt === 0 && !g.charge && Math.abs(lead) < 8 && Math.abs(p.vx) < 30) k.press.push('action');
     return false;
   };
@@ -347,7 +359,8 @@ function dodging(step: Step, hold = true): Step {
     }
     const away = x < threat ? (x > 30 ? 'left' : 'right') : (x < 290 ? 'right' : 'left');
     k.held.push(away);
-    if (p.vy > 20 || p.y > 60) k.held.push('jump');
+    // Out from under a bomb sideways, never up into it; out of a dive column, holding height.
+    if (dive ? p.vy > 20 || p.y > 60 : p.vy > 40 && p.y > 80) k.held.push('jump');
     return false;
   };
 }
