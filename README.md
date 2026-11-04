@@ -14,6 +14,9 @@ three-room Bomber finale (23 rooms), then a dawn ending, the results card and th
 docker compose up --build -d     # serves on http://localhost:8138
 ```
 
+To watch a bot play the whole game, open http://localhost:8138/?autoplay (or `?autoplay=4` for
+four times the speed) and press Enter.
+
 | Key | Action |
 |---|---|
 | ← → or A D | Move |

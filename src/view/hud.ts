@@ -19,6 +19,8 @@ export class Hud {
   readonly ctx: CanvasRenderingContext2D;
   scale = 2;
   private popups: { text: string; px: number; py: number; t: number }[] = [];
+  /** A tag shown at the bottom left during play (watch mode: "AUTOPLAY"). */
+  badge: string | null = null;
   /** The room prompts' opacity: they fade while something passes behind them. */
   private promptAlpha = 1;
 
@@ -173,6 +175,8 @@ export class Hud {
       this.text(pp.text, at.x - textWidth(pp.text) / 2, at.y - 14 - pp.t * 18, C.brass);
       c.globalAlpha = 1;
     }
+
+    if (this.badge && Math.floor(performance.now() / 700) % 2 === 0) this.label(this.badge, 4, this.h - 16, C.brass);
 
     if (overlay) this.centred(overlay, Math.round(this.h * 0.36));
   }

@@ -23,7 +23,8 @@ straight up and folds into a chopper.
 - **Built:** the whole game. Every room is cleared by a bot in `tests/stagebots.ts`; the rules in
   decisions 29 (the tank can't do the chopper's job) and 30 (attacks are fair) are tested.
   `node tools/e2e.mjs` passes on the Docker build. Debug flags: `?rooms=test`, `?debug`
-  (`window.highWaterDebug.goto(id)`).
+  (`window.highWaterDebug.goto(id)`). Watch mode: `?autoplay` (or `?autoplay=2` to `4` for speed)
+  plays the whole run from the room recordings (`src/sim/autoplay.ts`).
 - **Intro approved** by Debu (2026-11-04). Debu wants it ready to submit on 2026-11-04.
 - **Cut for time** (decision 32): the per-stage time bonus, Restart Room keeping the death count,
   landing-page frame-rate work; the Bomber's belly shot and the castle timer (decision 31).

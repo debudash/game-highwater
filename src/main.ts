@@ -3,6 +3,7 @@
 // card (src/ui/screens.ts). Also the HUD, sound effects, music, saving and the best score.
 
 import { Help } from './sim/config';
+import { Autoplay } from './sim/autoplay';
 import { createGame, Game, GameEvent, RoomState, tick } from './sim/game';
 import { FrameClock, InputCollector } from './sim/input';
 import { actionFor, loadSettings, saveSettings } from './settings';
@@ -36,6 +37,15 @@ const clock = new FrameClock();
 const input = new InputCollector();
 
 let game: Game = createGame();
+
+/**
+ * Watch mode: ?autoplay lets a bot play the whole run (src/sim/autoplay.ts); ?autoplay=2 plays it
+ * at double speed. Press Enter on the landing page to start it (that also lets the sound start).
+ */
+const params = new URLSearchParams(location.search);
+const autoplay = params.has('autoplay') ? new Autoplay() : null;
+const autoSpeed = Math.max(1, Math.min(4, Number(params.get('autoplay')) || 1));
+hud.badge = autoplay ? 'AUTOPLAY' : null;
 
 /** The run's figures that the sim doesn't keep: boats brought home, rooms skipped. */
 const run = { boats: 0, skipped: [] as string[], stage: -1, nextSkipOffer: Help.skipDeaths, roomIndex: -1 };
@@ -214,8 +224,15 @@ function frame(now: number): void {
     const before = game.room;
     const n = clock.advance(now);
     for (const ti of input.takeFrame(n)) {
-      tick(game, ti);
-      events.push(...game.events);
+      if (!autoplay) {
+        tick(game, ti);
+        events.push(...game.events);
+        continue;
+      }
+      for (let k = 0; k < autoSpeed && !game.complete; k++) {
+        tick(game, autoplay.next(game));
+        events.push(...game.events);
+      }
     }
     followRun(events, before);
   }
