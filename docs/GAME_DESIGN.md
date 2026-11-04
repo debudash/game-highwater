@@ -353,8 +353,8 @@ pixel-rendered 3D prototype. This section supersedes the 3D notes kept below for
 **Infrastructure:**
 - **Local serving:** Docker on port **8138**. River Guard keeps 8137.
 - **Public link (decision 32):** https://game-highwater.fly.dev/, the Docker image on Fly.io
-  (`fly.toml`, `fly deploy`). The code goes to the Gauntlet GitLab at the final stage; until then
-  `main` is pushed to GitHub. (This replaces the earlier plan of GitHub Pages from a `release` branch.) The Vite `base`
+  (`fly.toml`, `fly deploy`). `main` is pushed to GitHub (remote `origin`) and to the Gauntlet
+  GitLab, https://labs.gauntletai.com/debudash/game-highwater (remote `gitlab`). (This replaces the earlier plan of GitHub Pages from a `release` branch.) The Vite `base`
   is `./`, so the build serves from any path.
 - **River Guard's specs:** `river-guard-*.md` moves to `docs/river-guard/` as v1 reference.
 - **Solvability:** every room has a recorded solution that runs as a test. The same recording feeds

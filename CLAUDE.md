@@ -32,7 +32,8 @@ straight up and folds into a chopper.
 - **Hosting (decision 32):** live at **https://game-highwater.fly.dev/** (Fly app `game-highwater`,
   one always-on machine in iad; `fly deploy` from the repo root, config in `fly.toml`). Redeploy
   after each change Debu wants live. `main` is pushed to GitHub (github.com/debudash/game-highwater,
-  remote `origin`); the Gauntlet GitLab push comes at the final stage. No GitHub Pages.
+  remote `origin`) and to the Gauntlet GitLab (labs.gauntletai.com/debudash/game-highwater, remote
+  `gitlab`, first pushed 2026-11-04). Push every commit to both. No GitHub Pages.
 - Title: **River Guard: High Water** (confirmed by Debu, 2026-11-03). "High Water" is fine as the
   short name in docs.
 - Issues are logged in `docs/ISSUE_LOG.md`.
