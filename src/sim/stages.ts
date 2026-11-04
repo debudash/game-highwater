@@ -264,9 +264,12 @@ const MINEFIELD: StageDef = {
         { col: 11, row: 1, text: 'CACTI GROW BACK. BE QUICK' },
       ],
       rows: [
-        '....................',
-        '....................',
-        '.P..................',
+        // HW-004: a rock wall at the right of the upper level, up to the top of the room, so the
+        // only way on is down the shaft and through the cactus (the tank used to jump the shaft and
+        // drive out along the top).
+        '...................#',
+        '...................#',
+        '.P.................#',
         '#########..#########',
         '#########..#########',
         '#########..#########',
@@ -343,10 +346,12 @@ const STORM: StageDef = {
         '....................',
         '....................',
         '....................',
-        '.P......#.....#.....',
-        '####....#.....#..###',
-        '####~~~~#~~~~~#~~###',
-        '####~~~~#~~~~~#~~###',
+        // HW-004: one island at ground height with 6-tile gaps either side, wider than any tank jump
+        // (was two raised pillars with 4-, 5- and 2-tile gaps the tank could hop across).
+        '.P..................',
+        '####......##......##',
+        '####~~~~~~##~~~~~~##',
+        '####~~~~~~##~~~~~~##',
       ],
     },
     {
