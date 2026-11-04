@@ -443,10 +443,13 @@ const BOMBER: StageDef = {
       prompts: [
         { col: 1, row: 2, text: 'ITS BELLY IS ARMOURED NOW' },
         { col: 1, row: 3, text: 'CHOPPER: {action} DROPS A CHARGE ON ITS HATCH' },
-        { col: 1, row: 4, text: 'LAND ON THE SHORE TO REFUEL' },
+        { col: 1, row: 4, text: 'A DIVE JET GUARDS IT: WATCH FOR THE WARNING' },
+        { col: 1, row: 5, text: 'LAND ON THE SHORE TO REFUEL' },
       ],
+      // A dive jet guards it (Debu: "what is the adventure if no one is attacking you"), so
+      // you bomb the hatch between dodges; they level out above the Bomber, not through it.
       rows: [
-        '...................W',
+        '....D..............W',
         '...................W',
         '...................W',
         '...................W',

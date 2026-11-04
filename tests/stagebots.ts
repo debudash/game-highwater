@@ -253,7 +253,7 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
   '5-3': () => script(become('chopper'), hookBoat(), deliver(col(17), 7 * TILE, 50), flyRightUntil(86)),
   '5-4': () => script(become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
   'F-1': () => script(become('tank'), fightBay(col(9)), driveRightUntil(never)),
-  'F-2': () => script(become('chopper'), fightHatch(col(9), 50), flyRightUntil(86)),
+  'F-2': () => script(become('chopper'), dodging(fightHatch(col(9), 50)), dodging(flyRightUntil(86))),
   'F-3': () => script(
     become('chopper'), dodging(hookBoat()), dodging(deliver(col(2), 7 * TILE, 50)),
     sinkUntil(col(2), (g) => g.player.onGround), waitFor((g) => g.player.fuel >= Chopper.fuelTicks), dodging(flyRightUntil(86)),
@@ -302,7 +302,7 @@ function fightHatch(spot: number, y: number): Step {
       }
       return false;
     }
-    if (p.fuel < Chopper.fuelTicks * 0.3) { refuel = true; return false; }
+    if (p.fuel < Chopper.fuelTicks * 0.5) { refuel = true; return false; }
     flyKeys(g, k, spot, y, 3);
     const lead = (b.x + b.w / 2 + b.dir * 10 - cx(g));
     if (b.phase === 'fly' && b.hurt === 0 && !g.charge && Math.abs(lead) < 8 && Math.abs(p.vx) < 30) k.press.push('action');

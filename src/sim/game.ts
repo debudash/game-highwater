@@ -893,6 +893,8 @@ function updateJets(g: Game): void {
       j.x = j.aimX - j.w / 2;
       j.y = -j.h - 2;
       j.pullY = groundBelow(room, j.aimX, 0) - Jet.skim;
+      // Over the lake where the Bomber skims, it levels out above the Bomber's line, not through it.
+      if (room.bomber?.mode === 'hatch' && room.bomber.phase === 'fly') j.pullY = Math.min(j.pullY, room.bomber.y - Jet.skim);
       j.dir = j.aimX < ROOM_PX_W / 2 ? 1 : -1; // it climbs away towards the far side
       emit(g, 'diveWarn', j.aimX, 0);
     } else if (j.phase === 'warn') {

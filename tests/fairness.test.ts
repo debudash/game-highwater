@@ -108,6 +108,52 @@ describe('HW-002: bombs give a human time to get clear', () => {
   }
 });
 
+describe('F-2: dive jets guard the Bomber, fairly', () => {
+  const F2 = GAME_ROOMS.find((r) => r.id === 'F-2')!;
+
+  it('the lake room has a dive jet attacking you (Debu: "what is the adventure if no one is attacking you")', () => {
+    expect(F2.rows.join('').split('D').length - 1).toBeGreaterThanOrEqual(1);
+  });
+
+  for (const away of ['left', 'right'] as const) {
+    it(`a chopper hovering over the lake that reacts after 350 ms and moves ${away} survives 25 s of dives`, () => {
+      const g = game(F2);
+      let home = 9 * TILE + 8;
+      let warned = -1;
+      for (let i = 0; i < 1500 && g.deaths === 0; i++) {
+        const p = g.player;
+        if (g.events.some((e) => e.type === 'diveWarn')) warned = i;
+        if (warned >= 0 && i - warned === REACT) home += (away === 'left' ? -1 : 1) * 36;
+        home = Math.max(4 * TILE, Math.min(15 * TILE, home));
+        const held: ('left' | 'right' | 'jump' | 'switch')[] = [];
+        if (i === 0) { tick(g, input([], ['switch'])); continue; }
+        if (warned >= 0 && i - warned >= REACT) {
+          const d = home - (p.x + p.w / 2);
+          if (d > 2) held.push('right');
+          else if (d < -2) held.push('left');
+        } else if (Math.abs(p.x + p.w / 2 - 9 * TILE - 8) > 3 && warned < 0) held.push(p.x + p.w / 2 < 9 * TILE + 8 ? 'right' : 'left');
+        if (p.y > 50 || p.vy > 30) held.push('jump');
+        if (p.fuel < 10) break; // out of fuel: the test is about the dives, not refuelling
+        tick(g, input(held));
+      }
+      expect(warned).toBeGreaterThanOrEqual(0);
+      expect(g.deaths).toBe(0);
+    });
+  }
+
+  it('a dive jet pulls out above the Bomber, never through it', () => {
+    const g = game(F2);
+    let climbs = 0;
+    for (let i = 0; i < 1500; i++) {
+      tick(g, input([]));
+      for (const j of g.room.jets) {
+        if (j.phase === 'climb' && j.y + j.h > g.room.bomber!.y) climbs++;
+      }
+    }
+    expect(climbs).toBe(0);
+  });
+});
+
 describe('HW-003: a dive jet never pulls out through a player who dodged', () => {
   for (const away of ['left', 'right'] as const) {
     for (const startCol of [4, 9, 15]) {
