@@ -105,6 +105,10 @@ export function playRoom(index: number, seed: number, prof: Profile): RoomResult
       else if (rngNext(rng) < prof.hesitate) idle = prof.hesitateMin + randInt(rng, prof.hesitateMax - prof.hesitateMin + 1);
       seen.push(threats(g));
       if (seen.length > react + 1) seen.shift();
+      // A warning or a falling bomb near you interrupts reading: you look up and act.
+      const late = seen[0];
+      const px = g.player.x + g.player.w / 2;
+      if (idle > 0 && (late.jets.some((j) => j.phase === 'warn' && Math.abs(j.aimX - px) < 40) || late.bombs.some((b) => Math.abs(b.x - px) < 40))) idle = 0;
       if (idle === 0) {
         const k = policy(lateView(g, seen[0]), pt++);
         queue.push({ held: k.held, press: k.press ?? [] });

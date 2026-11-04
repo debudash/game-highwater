@@ -228,23 +228,23 @@ export const STAGE_BOTS: Record<string, () => Policy> = {
   '2-4': () => script(lureOntoCrack(10 * TILE), tankDodging(dropInto(10 * TILE, 7 * TILE)), driveRightUntil(never)),
   '3-1': () => script(become('chopper'), flyTo(col(8), 20), flyRightUntil(20)),
   '3-2': () => script(become('chopper'), flyRightUntil(60)),
-  '3-3': () => script(become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
+  '3-3': () => script(become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), ...refuelAt(col(17) + 8), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
   '3-4': () => script(become('chopper'), flyTo(col(5), 34), flyTo(col(9), 40), hookBoat(), deliver(col(17), 5 * TILE, 20), flyRightUntil(54)),
   '4-1': () => script(
     become('chopper'), flyTo(10 * TILE + 8, 20), charge(), waitFor((g) => !g.room.cacti[0].grown),
     flyTo(10 * TILE, 20, 2), sinkUntil(10 * TILE, (g) => g.player.onGround), flyRightUntil(116),
   ),
   '4-2': () => script(
-    become('chopper'), flyTo(7 * TILE, 30, 2), charge(), waitFor((g) => g.room.tiles[4][6] === '.'),
-    sinkUntil(7 * TILE, (g) => g.player.onGround), flyTo(14 * TILE, 86, 2), charge(),
+    become('chopper'), flyTo(7 * TILE, 30, 6), charge(), waitFor((g) => g.room.tiles[4][6] === '.'),
+    sinkUntil(7 * TILE, (g) => g.player.onGround), flyTo(14 * TILE, 86, 6), charge(),
     waitFor((g) => g.room.tiles[7][13] === '.'), sinkUntil(14 * TILE, (g) => g.player.onGround), flyRightUntil(132),
   ),
-  '4-3': () => script(become('chopper'), hookBoat(), deliver(col(17), 7 * TILE, 50), flyRightUntil(86)),
-  '4-4': () => script(become('chopper'), hookBoat(), deliver(col(17) + 4, 7 * TILE, 50), flyRightUntil(82)),
-  '5-1': () => script(become('chopper'), flyRightUntil(50)),
-  '5-2': () => script(become('chopper'), flyRightUntil(50)),
-  '5-3': () => script(become('chopper'), hookBoat(), deliver(col(17), 7 * TILE, 50), flyRightUntil(86)),
-  '5-4': () => script(become('chopper'), hookBoat(), deliver(col(17) + 8, 7 * TILE, 50), flyRightUntil(86)),
+  '4-3': () => script(become('chopper'), blastMines(60), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), ...refuelAt(col(17)), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), dodging(flyRightUntil(86))),
+  '4-4': () => script(become('chopper'), dodging(hookBoat()), dodging(deliver(col(17) + 4, 7 * TILE, 50)), dodging(flyRightUntil(82))),
+  '5-1': () => script(become('chopper'), dodging(flyRightUntil(50))),
+  '5-2': () => script(become('tank'), shootDives(col(2)), become('chopper'), dodging(flyRightUntil(86))),
+  '5-3': () => script(become('chopper'), flyTo(col(1), 30), dodging(blastMines(60)), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), ...refuelAt(col(17)).map((st) => dodging(st)), dodging(hookBoat()), dodging(deliver(col(17), 7 * TILE, 50)), dodging(flyRightUntil(86))),
+  '5-4': () => script(become('chopper'), dodging(hookBoat()), dodging(deliver(col(17) + 8, 7 * TILE, 50)), dodging(flyRightUntil(86))),
   'F-1': () => script(become('tank'), fightBay(col(9)), driveRightUntil(never)),
   'F-2': () => script(become('chopper'), dodging(fightHatch(col(9), 50)), dodging(flyRightUntil(86))),
   'F-3': () => script(
@@ -290,9 +290,9 @@ function fightHatch(spot: number, y: number): Step {
     if (b.hp <= 0) return true;
     if (refuel) {
       if (p.onGround && p.fuel >= Chopper.fuelTicks) refuel = false;
-      else if (Math.abs(cx(g) - col(1)) > 4) flyKeys(g, k, col(1), y, 3);
+      else if (Math.abs(cx(g) - col(2)) > 4) flyKeys(g, k, col(2), y, 3);
       else if (!p.onGround) {
-        const d = col(1) - cx(g);
+        const d = col(2) - cx(g);
         if (d > 2) k.held.push('right');
         else if (d < -2) k.held.push('left');
       }
@@ -421,6 +421,44 @@ function landOn(x: number, y: number): Step {
     if (Math.abs(cx(g) - x) > 4) flyKeys(g, k, x, Math.min(y, p.y), 2);
     else if (p.vx > 8) k.held.push('left');
     else if (p.vx < -8) k.held.push('right');
+    return false;
+  };
+}
+
+/** Chopper: blast every mine in the room with charges from height y, leading each one's drift. */
+function blastMines(y: number): Step {
+  return (g, k) => {
+    const mines = g.room.mines.filter((m) => m.alive);
+    if (!mines.length) return true;
+    const m = mines.reduce((a, b) => (Math.abs(a.x - cx(g)) < Math.abs(b.x - cx(g)) ? a : b));
+    const aim = m.x + m.w / 2 + m.vx * 0.4;
+    flyKeys(g, k, aim, y, 3);
+    if (!g.charge && Math.abs(aim - cx(g)) < 5 && Math.abs(g.player.y - y) < 10) k.press.push('action');
+    return false;
+  };
+}
+
+/** Chopper: land at x (on a dock or bank) and wait there until the tank is full. */
+function refuelAt(x: number): Step[] {
+  return [landOn(x, 70), waitFor((g) => g.player.fuel >= Chopper.fuelTicks)];
+}
+
+/**
+ * Tank: hold a spot and shoot each dive jet as it comes down your column (fire as the dive
+ * starts); if a shot misses and it's still coming, drive out of the column. Done when all are down.
+ */
+function shootDives(home: number): Step {
+  return (g, k) => {
+    const dives = g.room.jets.filter((j) => j.alive && j.kind === 'dive');
+    if (!dives.length) return true;
+    const x = cx(g);
+    const j = dives.find((d) => (d.phase === 'warn' || d.phase === 'dive') && Math.abs(d.aimX - x) < 24);
+    if (j && j.phase === 'dive') {
+      if (!g.shell && j.y < 40) k.press.push('action');
+      else if (j.y >= 40) k.held.push(x < 100 ? 'right' : 'left');
+      return false;
+    }
+    driveTo(home, 3)(g, k);
     return false;
   };
 }

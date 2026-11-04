@@ -8,7 +8,7 @@ straight up and folds into a chopper.
 
 ## Status (2026-11-04)
 
-- `docs/GAME_DESIGN.md` holds every design decision; its decision log (rows 1–32) lists them. It is
+- `docs/GAME_DESIGN.md` holds every design decision; its decision log (rows 1–33) lists them. It is
   the source of truth for the design; the brief (`docs/ASSIGNMENT.md`) wins over it.
 - The headlines:
   - **Look B** (decision 25): generated 2D pixel art in the style of quizcaster.com, drawn by the
@@ -25,6 +25,7 @@ straight up and folds into a chopper.
   `node tools/e2e.mjs` passes on the Docker build. Debug flags: `?rooms=test`, `?debug`
   (`window.highWaterDebug.goto(id)`). Watch mode: `?autoplay` (or `?autoplay=2` to `4` for speed)
   plays the whole run from the room recordings (`src/sim/autoplay.ts`).
+- **Play time (decision 33):** estimated by a simulated new player, `NOVICE=1 npx vitest run tests/novice.report.test.ts`: about 7½ min casual, 12 min non-gamer. Re-run it after any room change.
 - **Intro approved** by Debu (2026-11-04). Debu wants it ready to submit on 2026-11-04.
 - **Cut for time** (decision 32): the per-stage time bonus, Restart Room keeping the death count,
   landing-page frame-rate work; the Bomber's belly shot and the castle timer (decision 31).

@@ -21,10 +21,10 @@ describe('stages', () => {
     expect(new Set(GAME_ROOMS.map((r) => r.id)).size).toBe(GAME_ROOMS.length);
   });
 
-  it('boats: 2 required in each of stages 3 to 5, 5 hidden in all', () => {
+  it('boats: 3 required in each of stages 3 to 5, 1 in the finale, 5 hidden in all', () => {
     const count = (stage: number, ch: string) =>
       GAME_ROOMS.filter((r) => r.stage === stage).reduce((n, r) => n + r.rows.join('').split(ch).length - 1, 0);
-    expect([0, 1, 2, 3, 4, 5].map((s) => count(s, 'B'))).toEqual([0, 0, 2, 2, 2, 1]);
+    expect([0, 1, 2, 3, 4, 5].map((s) => count(s, 'B'))).toEqual([0, 0, 3, 3, 3, 1]);
     expect([0, 1, 2, 3, 4].reduce((n, s) => n + count(s, 'b'), 0)).toBe(5);
   });
 });

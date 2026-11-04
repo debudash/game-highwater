@@ -190,9 +190,9 @@ war game.
 | Stage | Required (opens the gate) | Hidden (harder route) |
 |---|---|---|
 | 1–2 | none | 1 each, rescued by touching it |
-| 3–5 | 2 each, carried to the bank by the chopper | 1 each |
+| 3–5 | 3 each, carried to the bank by the chopper (two in each stage's boat room: 3-3, 4-3, 5-3) | 1 each |
 | Finale | 1, the boat the Bomber shot down | none |
-| **Total** | **7** | **5** (12 in all) |
+| **Total** | **10** | **5** (15 in all) |
 
 - **HUD:** shows the current stage's required boats, for example "Boats 1/2".
 - **Results card:** shows the total, for example "Boats 9/12".
@@ -473,3 +473,4 @@ All settled by Debu on 2026-11-03.
 | 30 | **Attacks are fair to a human (Debu, HW-002/HW-003):** every bomb and dive gives a player who reacts 350 ms after the cue time to drive clear with a margin. `tests/fairness.test.ts` keeps it so |
 | 31 | **The Bomber as built (Claude, 2026-11-04; Debu: "submit by today"):** three rooms, each a checkpoint. F-1 shoot its bay 3 times; F-2 3 charges on its hatch (its belly is armoured: shells clank off) while a dive jet guards it (Debu: nothing attacked you there), levelling out above the Bomber; F-3 it limps off burning in the distance while dive jets and a bomber jet attack and you carry its last boat to your dock. Cut from the design: shooting its belly as it climbs in phase 2, and the castle closing on a timer in phase 3. Its bombs follow decision 30, and decision 29 holds (the gates stay shut until it's beaten or the boat is home). The ending is four lines at dawn, then the results card with Debu's credits: "A GAME FOR FUN AND ADVENTURE / ART GENERATED WITH NANO BANANA / CODE, SOUND AND MUSIC MADE WITH CLAUDE" |
 | 32 | **Hosting (Debu, 2026-11-04):** push to GitHub for now; at the final stage host on Fly.io or Railway and push to the Gauntlet GitLab. No GitHub Pages. Cut for time: the per-stage time bonus, Restart Room keeping the death count, landing-page frame-rate work |
+| 33 | **Length and difficulty curve (Debu, 2026-11-04: "8-10 mins", "progressively harder"):** tuned against a simulated new player (`tests/novice.ts`: the stage bots with late reactions, slow hands, reading and hesitation, learning after deaths, skipping after 10). Estimate: about 7½ min for a casual player and 12 min for a non-gamer (`NOVICE=1 npx vitest run tests/novice.report.test.ts`). Changes: a second boat in each stage's boat room (3-3, 4-3, 5-3; 10 required boats, 15 in all), so 4-3 and 5-3 make you blast the mines first; more mines in 4-3 and 4-4; dive jets in 5-1 and 5-4; 5-2's gate needs its three dive jets shot down (stage 5's shoot-up idea is now required); a cross jet and a second mine in 5-3; the Bomber takes 4 hits in F-1; F-2's shores are 4 tiles wide and the Bomber turns a tile short of them; F-3 has a rock mid-lake to refuel on. Fixed on the way: HW-005, HW-006. The stranger playtest calibrates the model |

@@ -9,7 +9,7 @@ import type { RoomDef } from '../sim/rooms';
 /** Design "Stages": five stages plus the finale. */
 export const STAGE_NAMES = ['RIVERSIDE ROAD', 'JET ALLEY', 'FLOODPLAIN', 'MINEFIELD', 'STORM FRONT', 'THE BOMBER'];
 /** Design "Boats": 7 required plus 5 hidden. */
-export const BOATS_IN_GAME = 12;
+export const BOATS_IN_GAME = 15;
 export const FINALE = 5;
 
 /** Fields the full sim adds to rooms and the game. All optional here, so either version works. */

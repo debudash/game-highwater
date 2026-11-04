@@ -167,7 +167,7 @@ export const Bomber = {
   bombCooldownTicks: ms(1300),
   /** After a hit it flashes and can't be hit again for this long. */
   hurtTicks: ms(900),
-  hpBay: 3,
+  hpBay: 4,
   hpHatch: 3,
   /** Once beaten it trails smoke and flies off at this speed, sinking slowly. */
   fleeSpeed: 70,
