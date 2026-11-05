@@ -17,7 +17,8 @@ docker compose up --build -d     # serves on http://localhost:8138
 ```
 
 To watch a bot play the whole game, open http://localhost:8138/?autoplay (or `?autoplay=4` for
-four times the speed) and press Enter.
+four times the speed) and press Enter. In 3-4 (HIGH WATER) the bot waits too long on purpose, so a
+jet sinks the boat and the room restarts; then it plays the room properly.
 
 | Key | Action |
 |---|---|

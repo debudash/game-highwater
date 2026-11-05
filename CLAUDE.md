@@ -24,7 +24,8 @@ straight up and folds into a chopper.
   decisions 29 (the tank can't do the chopper's job) and 30 (attacks are fair) are tested.
   `node tools/e2e.mjs` passes on the Docker build. Debug flags: `?rooms=test`, `?debug`
   (`window.highWaterDebug.goto(id)`). Watch mode: `?autoplay` (or `?autoplay=2` to `4` for speed)
-  plays the whole run from the room recordings (`src/sim/autoplay.ts`).
+  plays the whole run from the room recordings (`src/sim/autoplay.ts`). In 3-4 it first waits until a
+  jet sinks the boat, to show the threat and the retry; that is its one death.
 - **Play time (decision 33):** estimated by a simulated new player, `NOVICE=1 npx vitest run tests/novice.report.test.ts`: about 7½ min casual, 12 min non-gamer. Re-run it after any room change.
 - **Intro approved** by Debu (2026-11-04). Debu wants it ready to submit on 2026-11-04.
 - **Cut for time** (decision 32): the per-stage time bonus, Restart Room keeping the death count,
